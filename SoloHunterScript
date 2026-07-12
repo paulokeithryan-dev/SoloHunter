@@ -1,0 +1,249 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- // STATE FLAGS & CONFIG (Mutable) // --
+local systemEnabled = false
+local autoEquipEnabled = true -- Auto-equip defaults to ON
+local HOVER_HEIGHT = 4        -- Can now be changed via UI
+local MAX_DETECTION_DIST = 300  
+local M1_SPEED = 0.1            
+local SKILL_INTERVAL = 1.5      
+
+-- // USER INTERFACE CREATION // --
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AutoCombatUI_v2"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+-- Expanded Main Container Frame to hold new settings
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 190, 0, 125)
+mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true 
+mainFrame.Parent = screenGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = mainFrame
+
+-- 1. Main System Toggle Button
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(1, -10, 0, 35)
+toggleButton.Position = UDim2.new(0, 5, 0, 5)
+toggleButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+toggleButton.Text = "SYSTEM: OFF"
+toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.Font = Enum.Font.SourceSansBold
+toggleButton.TextSize = 14
+toggleButton.Parent = mainFrame
+
+local btnCorner1 = Instance.new("UICorner")
+btnCorner1.CornerRadius = UDim.new(0, 6)
+btnCorner1.Parent = toggleButton
+
+-- 2. Height Adjustment Elements
+local minusBtn = Instance.new("TextButton")
+minusBtn.Size = UDim2.new(0, 30, 0, 35)
+minusBtn.Position = UDim2.new(0, 5, 0, 45)
+minusBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+minusBtn.Text = "-"
+minusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minusBtn.Font = Enum.Font.SourceSansBold
+minusBtn.TextSize = 18
+minusBtn.Parent = mainFrame
+
+local btnCorner2 = Instance.new("UICorner")
+btnCorner2.CornerRadius = UDim.new(0, 6)
+btnCorner2.Parent = minusBtn
+
+local heightLabel = Instance.new("TextLabel")
+heightLabel.Size = UDim2.new(1, -80, 0, 35)
+heightLabel.Position = UDim2.new(0, 40, 0, 45)
+heightLabel.BackgroundTransparency = 1
+heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
+heightLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+heightLabel.Font = Enum.Font.SourceSansBold
+heightLabel.TextSize = 14
+heightLabel.Parent = mainFrame
+
+local plusBtn = Instance.new("TextButton")
+plusBtn.Size = UDim2.new(0, 30, 0, 35)
+plusBtn.Position = UDim2.new(1, -35, 0, 45)
+plusBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+plusBtn.Text = "+"
+plusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+plusBtn.Font = Enum.Font.SourceSansBold
+plusBtn.TextSize = 18
+plusBtn.Parent = mainFrame
+
+local btnCorner3 = Instance.new("UICorner")
+btnCorner3.CornerRadius = UDim.new(0, 6)
+btnCorner3.Parent = plusBtn
+
+-- 3. Auto-Equip Toggle Button
+local equipButton = Instance.new("TextButton")
+equipButton.Size = UDim2.new(1, -10, 0, 35)
+equipButton.Position = UDim2.new(0, 5, 0, 85)
+equipButton.BackgroundColor3 = Color3.fromRGB(60, 150, 200)
+equipButton.Text = "Auto-Equip: ON"
+equipButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+equipButton.Font = Enum.Font.SourceSansBold
+equipButton.TextSize = 14
+equipButton.Parent = mainFrame
+
+local btnCorner4 = Instance.new("UICorner")
+btnCorner4.CornerRadius = UDim.new(0, 6)
+btnCorner4.Parent = equipButton
+
+-- // UI LOGIC CONNECTORS // --
+toggleButton.MouseButton1Click:Connect(function()
+    systemEnabled = not systemEnabled
+    if systemEnabled then
+        toggleButton.Text = "SYSTEM: ON"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
+    else
+        toggleButton.Text = "SYSTEM: OFF"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    end
+end)
+
+equipButton.MouseButton1Click:Connect(function()
+    autoEquipEnabled = not autoEquipEnabled
+    if autoEquipEnabled then
+        equipButton.Text = "Auto-Equip: ON"
+        equipButton.BackgroundColor3 = Color3.fromRGB(60, 150, 200)
+    else
+        equipButton.Text = "Auto-Equip: OFF"
+        equipButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    end
+end)
+
+minusBtn.MouseButton1Click:Connect(function()
+    HOVER_HEIGHT = math.clamp(HOVER_HEIGHT - 1, 0, 30) -- Keeps height between 0 and 30
+    heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
+end)
+
+plusBtn.MouseButton1Click:Connect(function()
+    HOVER_HEIGHT = math.clamp(HOVER_HEIGHT + 1, 0, 30)
+    heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
+end)
+
+-- // COMBAT & TARGETING SYSTEM // --
+local function isEnemy(model)
+    if model:IsA("Model") and model ~= player.Character then
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        local root = model:FindFirstChild("HumanoidRootPart")
+        if humanoid and root and humanoid.Health > 0 then
+            return true
+        end
+    end
+    return false
+end
+
+local function getClosestEnemy()
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    
+    local playerRoot = character.HumanoidRootPart
+    local closestEnemy = nil
+    local shortestDistance = MAX_DETECTION_DIST
+
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if isEnemy(obj) then
+            local enemyRoot = obj.HumanoidRootPart
+            local distance = (playerRoot.Position - enemyRoot.Position).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                closestEnemy = obj
+            end
+        end
+    end
+    return closestEnemy
+end
+
+-- // POSITIONING LOOP // --
+local targetEnemy = nil
+
+RunService.Heartbeat:Connect(function()
+    if not systemEnabled then 
+        targetEnemy = nil
+        return 
+    end
+
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    
+    if not root or (humanoid and humanoid.Health <= 0) then return end
+    
+    targetEnemy = getClosestEnemy()
+    
+    if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") then
+        local enemyRoot = targetEnemy.HumanoidRootPart
+        local _, boxSize = targetEnemy:GetBoundingBox()
+        
+        -- Dynamically uses the UI-adjusted HOVER_HEIGHT variable
+        local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
+        local targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
+        
+        root.CFrame = CFrame.new(targetPosition, enemyRoot.Position)
+        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+    end
+end)
+
+-- // AUTO WEAPON EQUIP LOOP // --
+task.spawn(function()
+    while true do
+        task.wait(0.5) -- Scans weapon status twice a second
+        if systemEnabled and autoEquipEnabled then
+            local character = player.Character
+            if character and character:FindFirstChildOfClass("Humanoid") and character.Humanoid.Health > 0 then
+                -- Safely checks if a tool is NOT currently held before hitting '1'
+                local holdingTool = character:FindFirstChildOfClass("Tool")
+                if not holdingTool then
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
+                    task.wait(0.02)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+                end
+            end
+        end
+    end
+end)
+
+-- // AUTO M1 CLICK LOOP // --
+task.spawn(function()
+    while true do
+        task.wait(M1_SPEED)
+        if systemEnabled and targetEnemy then
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            task.wait(0.02)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        end
+    end
+end)
+
+-- // AUTO SKILL CAST LOOP // --
+local skills = {Enum.KeyCode.F, Enum.KeyCode.R, Enum.KeyCode.C}
+
+task.spawn(function()
+    while true do
+        for _, key in ipairs(skills) do
+            if systemEnabled and targetEnemy then
+                VirtualInputManager:SendKeyEvent(true, key, false, game)
+                task.wait(0.05)
+                VirtualInputManager:SendKeyEvent(false, key, false, game)
+                
+                task.wait(SKILL_INTERVAL)
+            else
+                task.wait(0.5)
+            end
+        end
+    end
+end)
