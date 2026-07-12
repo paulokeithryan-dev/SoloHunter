@@ -18,18 +18,39 @@ local Window = Rayfield:CreateWindow({
    KeySystem = false
 })
 
--- 2. Generate Tabs (Using clean icon strings to prevent modern Rayfield v2 crashes)
+-- 2. Generate Tabs
 local MainTab = Window:CreateTab("Automation", "play") 
 local ConfigTab = Window:CreateTab("Configurations", "settings")
 
--- Safe environment variables to prevent index errors
+-- Safe environment variables
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local VirtualUser = game:GetService("VirtualUser")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Safe Folder fallbacks so the script doesn't break if folders are missing at startup
+-- Exact Network Services & Remotes Structure From Your Images
+local RemoteServices = ReplicatedStorage:WaitForChild("RemoteServices", 5)
+
+-- Drop Collection Remote
+local CollectDropRF = RemoteServices 
+    and RemoteServices:WaitForChild("DropsService", 5) 
+    and RemoteServices.DropsService:WaitForChild("RF", 5) 
+    and RemoteServices.DropsService.RF:WaitForChild("CollectDrop", 5)
+
+-- Verified Combat Weapon Remote Function
+local UseWeaponRF = RemoteServices 
+    and RemoteServices:WaitForChild("CombatService", 5)
+    and RemoteServices.CombatService:WaitForChild("RF", 5)
+    and RemoteServices.CombatService.RF:WaitForChild("UseWeapon", 5)
+
+-- Core Game Folders (Targeting camera drops structure)
+local Camera = workspace:FindFirstChild("Camera")
+local DropsFolder = (Camera and Camera:FindFirstChild("Drops")) 
+    or workspace:FindFirstChild("Drops") 
+    or workspace:FindFirstChild("Items") 
+    or workspace
+
 local EnemiesFolder = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters") or workspace
-local DropsFolder = workspace:FindFirstChild("Drops") or workspace:FindFirstChild("Items") or workspace
 
 -- Script Global Variables
 _G.AutoFarm = false
@@ -37,7 +58,7 @@ _G.AutoCollect = false
 _G.FarmDistance = 5
 _G.CombatStance = "Above"
 
--- 3. Helper Functions (Safely wrapped in pcalls)
+-- 3. Helper Functions
 local function getClosestEnemy()
     local closest = nil
     local shortestDistance = math.huge
@@ -72,24 +93,15 @@ local function teleportToPosition(pos)
 end
 
 local function processDrop(drop)
-    if not drop:IsA("BasePart") then return end
+    if not _G.AutoCollect or not CollectDropRF then return end
     task.spawn(function()
-        while drop.Parent and _G.AutoCollect do
-            local character = LocalPlayer.Character
-            if character and character:FindFirstChild("HumanoidRootPart") then
-                local distance = (drop.Position - character.HumanoidRootPart.Position).Magnitude
-                if distance < 25 then
-                    teleportToPosition(drop.CFrame)
-                    task.wait(0.1)
-                    break
-                end
-            end
-            task.wait(0.2)
-        end
+        pcall(function()
+            CollectDropRF:InvokeServer(drop)
+        end)
     end)
 end
 
--- Anti-AFK implementation to prevent disconnects while farming
+-- Anti-AFK
 pcall(function()
     LocalPlayer.Idled:Connect(function()
         VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
@@ -112,7 +124,7 @@ MainTab:CreateToggle({
               while _G.AutoFarm do
                   local target = getClosestEnemy()
                   if target and target:FindFirstChild("HumanoidRootPart") then
-                      -- Calculate structural stance offset safely
+                      -- Position relative to the target
                       local offset = Vector3.new(0, _G.FarmDistance, 0)
                       if _G.CombatStance == "Behind" then
                           offset = target.HumanoidRootPart.CFrame.LookVector * -_G.FarmDistance
@@ -122,10 +134,16 @@ MainTab:CreateToggle({
                       
                       teleportToPosition(target.HumanoidRootPart.CFrame * CFrame.new(offset))
                       
-                      -- Trigger basic attack simulation safely
+                      -- Precise Weapon Invocation
                       pcall(function()
-                          local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
-                          if tool then tool:Activate() end
+                          if UseWeaponRF then
+                              -- Calls the server directly with target array formatting
+                              UseWeaponRF:InvokeServer(1, { target }, 0.4, nil, "CS_HW_V1")[cite: 3]
+                          else
+                              -- Fallback tool click activation
+                              local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                              if tool then tool:Activate() end
+                          end
                       end)
                   end
                   task.wait(0.1)
@@ -145,17 +163,20 @@ MainTab:CreateToggle({
           task.spawn(function()
               while _G.AutoCollect do
                   pcall(function()
-                      for _, drop in ipairs(DropsFolder:GetChildren()) do
-                          if drop:IsA("BasePart") then
-                              local character = LocalPlayer.Character
-                              if character and character:FindFirstChild("HumanoidRootPart") then
+                      if DropsFolder then
+                          for _, drop in ipairs(DropsFolder:GetChildren()) do
+                              if CollectDropRF then
+                                  task.spawn(function()
+                                      CollectDropRF:InvokeServer(drop)
+                                  end)
+                              else
                                   teleportToPosition(drop.CFrame)
                                   task.wait(0.1)
                               end
                           end
                       end
                   end)
-                  task.wait(0.5)
+                  task.wait(0.3)
               end
           end)
       end
@@ -189,14 +210,14 @@ ConfigTab:CreateDropdown({
 
 -- 5. Safe Startup Initialization
 pcall(function()
-    if DropsFolder ~= workspace then
+    if DropsFolder and DropsFolder ~= workspace then
         DropsFolder.ChildAdded:Connect(processDrop)
     end
 end)
 
 Rayfield:Notify({
    Title = "System Loaded",
-   Content = "Your framework initialized successfully with zero errors.",
+   Content = "Direct Remote Execution framework updated successfully.",
    Duration = 5,
    Image = "check"
 })
