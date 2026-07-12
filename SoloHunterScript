@@ -6,19 +6,23 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- // EXPLOIT REMOTES (Updated with your Cobalt Dumps) // --
+-- // EXPLOIT REMOTES (Updated via Cobalt Logs) // --
 local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 
+-- Portal-Specific Cobalt Remotes
+local getActDungeonPlayers = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("GetActDungeonPlayers")
+local startDungeonFromGate = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("StartDungeonFromGate")
+
 -- // STATE FLAGS & CONFIG // --
 local systemEnabled = false
 local autoEquipEnabled = true 
 local autoCollectEnabled = true  
 local autoPotionEnabled = true   
-local autoDungeonEnabled = true  -- New Feature
+local autoDungeonEnabled = true  
 
 local HOVER_HEIGHT = 4         
 local MAX_DETECTION_DIST = 300  
@@ -27,23 +31,72 @@ local SKILL_INTERVAL = 1.5
 
 -- // USER INTERFACE CREATION // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoCombatUI_v6"
+screenGui.Name = "AutoCombatUI_v7"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- Main Container Frame (Height expanded to 245 to fit the Auto-Dungeon toggle)
+-- Main Container Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 190, 0, 245)
 mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
-mainFrame.Draggable = false 
+mainFrame.Draggable = true -- Enabled dragging to assist positioning
 mainFrame.Parent = screenGui
 
 local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(0, 8)
 uiCorner.Parent = mainFrame
+
+-- Portal Selection Side-Panel
+local portalFrame = Instance.new("Frame")
+portalFrame.Size = UDim2.new(0, 220, 0, 245)
+portalFrame.Position = UDim2.new(1, 5, 0, 0) -- Docks to the right side of mainFrame
+portalFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+portalFrame.BorderSizePixel = 0
+portalFrame.Parent = mainFrame
+
+local portalCorner = Instance.new("UICorner")
+portalCorner.CornerRadius = UDim.new(0, 8)
+portalCorner.Parent = portalFrame
+
+local portalTitle = Instance.new("TextLabel")
+portalTitle.Size = UDim2.new(1, 0, 0, 25)
+portalTitle.Position = UDim2.new(0, 0, 0, 5)
+portalTitle.BackgroundTransparency = 1
+portalTitle.Text = "AVAILABLE PORTALS"
+portalTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+portalTitle.Font = Enum.Font.SourceSansBold
+portalTitle.TextSize = 14
+portalTitle.Parent = portalFrame
+
+local refreshPortalsBtn = Instance.new("TextButton")
+refreshPortalsBtn.Size = UDim2.new(1, -20, 0, 25)
+refreshPortalsBtn.Position = UDim2.new(0, 10, 0, 32)
+refreshPortalsBtn.BackgroundColor3 = Color3.fromRGB(140, 60, 200)
+refreshPortalsBtn.Text = "🔄 REFRESH LIST"
+refreshPortalsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+refreshPortalsBtn.Font = Enum.Font.SourceSansBold
+refreshPortalsBtn.TextSize = 12
+refreshPortalsBtn.Parent = portalFrame
+
+local portalRefreshCorner = Instance.new("UICorner")
+portalRefreshCorner.CornerRadius = UDim.new(0, 4)
+portalRefreshCorner.Parent = refreshPortalsBtn
+
+local portalScroll = Instance.new("ScrollingFrame")
+portalScroll.Size = UDim2.new(1, -10, 0, 170)
+portalScroll.Position = UDim2.new(0, 5, 0, 65)
+portalScroll.BackgroundTransparency = 1
+portalScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+portalScroll.ScrollBarThickness = 4
+portalScroll.Parent = portalFrame
+
+local portalListLayout = Instance.new("UIListLayout")
+portalListLayout.Padding = UDim.new(0, 4)
+portalListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+portalListLayout.Parent = portalScroll
 
 -- Floating Icon
 local floatingIcon = Instance.new("TextButton")
@@ -61,11 +114,6 @@ floatingIcon.Parent = screenGui
 local iconCorner = Instance.new("UICorner")
 iconCorner.CornerRadius = UDim.new(0, 25) 
 iconCorner.Parent = floatingIcon
-
-local iconStroke = Instance.new("UIStroke")
-iconStroke.Color = Color3.fromRGB(140, 60, 200)
-iconStroke.Thickness = 2
-iconStroke.Parent = floatingIcon
 
 -- Helper function for standard buttons
 local function createButton(name, text, pos, size, color)
@@ -184,7 +232,81 @@ plusBtn.MouseButton1Click:Connect(function()
     heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
 end)
 
--- // COMBAT & TARGETING SYSTEM // --
+-- // TARGET PORTAL TELEPORT & SERVER SEQUENCE // --
+local function teleportAndEnterPortal(portalObject, categoryName)
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    -- Track down target location geometry inside the object model
+    local targetPart = portalObject:IsA("Model") and (portalObject.PrimaryPart or portalObject:FindFirstChildOfClass("BasePart")) or portalObject
+    if not targetPart then return end
+    
+    -- Bypass Magnitude: Move directly onto the portal coordinate target space
+    root.CFrame = targetPart.CFrame * CFrame.new(0, 2, 0)
+    task.wait(0.2)
+    
+    -- Fire execution logic captured via Cobalt logs
+    pcall(function()
+        getActDungeonPlayers:InvokeServer(portalObject.Name, 1)
+    end)
+    task.wait(0.1)
+    pcall(function()
+        startDungeonFromGate:InvokeServer()
+    end)
+end
+
+-- // PORTAL SCANNER ENGINE // --
+local function refreshPortalList()
+    -- Clear current list items
+    for _, child in ipairs(portalScroll:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+    
+    local paths = {
+        ["Normal"] = workspace:FindFirstChild("PortalSpawns") and workspace.PortalSpawns:FindFirstChild("Normal"),
+        ["Infinite"] = workspace:FindFirstChild("PortalSpawns") and workspace.PortalSpawns:FindFirstChild("Infinite"),
+        ["Artifact"] = workspace:FindFirstChild("PortalSpawns") and workspace.PortalSpawns:FindFirstChild("ArtifactGates"),
+    }
+    
+    local itemsCount = 0
+    
+    for category, folder in pairs(paths) do
+        if folder then
+            for _, portal in ipairs(folder:GetChildren()) do
+                itemsCount = itemsCount + 1
+                
+                local pBtn = Instance.new("TextButton")
+                pBtn.Size = UDim2.new(1, -10, 0, 28)
+                pBtn.BackgroundColor3 = category == "Normal" and Color3.fromRGB(45, 110, 45) 
+                                     or category == "Infinite" and Color3.fromRGB(45, 75, 110) 
+                                     or Color3.fromRGB(110, 45, 45)
+                                     
+                pBtn.Text = string.format("[%s] %s", category:upper(), portal.Name)
+                pBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                pBtn.Font = Enum.Font.SourceSans
+                pBtn.TextSize = 12
+                pBtn.Parent = portalScroll
+                
+                local btnCorner = Instance.new("UICorner")
+                btnCorner.CornerRadius = UDim.new(0, 4)
+                btnCorner.Parent = pBtn
+                
+                pBtn.MouseButton1Click:Connect(function()
+                    teleportAndEnterPortal(portal, category)
+                end)
+            end
+        end
+    end
+    
+    portalScroll.CanvasSize = UDim2.new(0, 0, 0, itemsCount * 32)
+end
+
+refreshPortalsBtn.MouseButton1Click:Connect(refreshPortalList)
+
+-- // COMBAT ENGINE // --
 local function isEnemy(model)
     if model:IsA("Model") and model ~= player.Character then
         local humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -217,10 +339,8 @@ local function getClosestEnemy()
     return closestEnemy
 end
 
--- // POSITIONING & AIMING LOOP // --
 local targetEnemy = nil
 
--- Throttled Target Locator Thread to resolve FPS drops/crashes
 task.spawn(function()
     while true do
         if systemEnabled then
@@ -276,11 +396,10 @@ task.spawn(function()
     end
 end)
 
--- // REAL-TIME DROP COLLECTION // --
+-- // EXTENDED DROP COLLECTION (CAMERA SPACE ADDITION) // --
 local function processDrop(obj)
     if not systemEnabled or not autoCollectEnabled or not obj then return end
     
-    -- High Performance Proximity Prompt Triggering
     if obj:IsA("ProximityPrompt") then
         task.spawn(function()
             if fireproximityprompt then
@@ -301,6 +420,7 @@ local function processDrop(obj)
     local isDrop = nameLower:find("drop") 
         or nameLower:find("loot") 
         or nameLower:find("item")
+        or nameLower:find("potion")
         or parentNameLower:find("drop") 
         or parentNameLower:find("loot")
         or obj:IsA("TouchTransmitter")
@@ -317,12 +437,26 @@ end
 
 workspace.DescendantAdded:Connect(processDrop)
 
+-- Camera Descendant Listener (Captures workspace.Camera.Drops dynamically)
+local cameraInstance = workspace:FindFirstChildOfClass("Camera") or workspace:FindFirstChild("Camera")
+if cameraInstance then
+    cameraInstance.DescendantAdded:Connect(processDrop)
+end
+
 task.spawn(function()
     while true do
         task.wait(0.5)
         if systemEnabled and autoCollectEnabled then
+            -- Scan traditional workspace
             for _, obj in ipairs(workspace:GetDescendants()) do
                 processDrop(obj)
+            end
+            -- Scan hidden Camera space hierarchy
+            local activeCam = workspace.CurrentCamera or workspace:FindFirstChild("Camera")
+            if activeCam and activeCam:FindFirstChild("Drops") then
+                for _, obj in ipairs(activeCam.Drops:GetDescendants()) do
+                    processDrop(obj)
+                end
             end
         end
     end
@@ -346,13 +480,11 @@ task.spawn(function()
     end
 end)
 
--- // UPGRADED DIRECT REMOTE ATTACK LOOP // --
+-- // HYBRID ATTACK LOOP // --
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
         if systemEnabled and targetEnemy then
-            -- Double-Engine Hybrid Attack: Fires the Direct Server Remote AND simulates a client click
-            -- This bypasses client window focus locks and hits with perfect accuracy
             task.spawn(function()
                 pcall(function() useWeaponRemote:InvokeServer() end)
             end)
@@ -364,12 +496,11 @@ task.spawn(function()
     end
 end)
 
--- // AUTO-DUNGEON & GATE AUTO-PROGRESSION // --
+-- // LOBBY GAME INTERACTION LOOP // --
 task.spawn(function()
     while true do
-        task.wait(1.5) -- Throttled perfectly to prevent triggering server spam limits
+        task.wait(1.5)
         if systemEnabled and autoDungeonEnabled then
-            -- Verify visible layout presence prior to calling Remotes
             local mainGui = playerGui:FindFirstChild("Main")
             local startBtn = mainGui and mainGui:FindFirstChild("StartBtn")
             
@@ -403,3 +534,6 @@ task.spawn(function()
         end
     end
 end)
+
+-- Initial populate on execution
+task.delay(1, refreshPortalList)
