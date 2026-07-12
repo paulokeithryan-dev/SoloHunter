@@ -6,18 +6,17 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- // EXPLOIT REMOTES (Updated via Cobalt Logs) // --
+-- // EXPLOIT REMOTES // --
 local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 
--- Portal-Specific Cobalt Remotes
 local getActDungeonPlayers = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("GetActDungeonPlayers")
 local startDungeonFromGate = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("StartDungeonFromGate")
 
--- // STATE FLAGS & CONFIG // --
+-- // CONFIG & STATE // --
 local systemEnabled = false
 local autoEquipEnabled = true 
 local autoCollectEnabled = true  
@@ -29,159 +28,194 @@ local MAX_DETECTION_DIST = 300
 local M1_SPEED = 0.1            
 local SKILL_INTERVAL = 1.5      
 
--- // USER INTERFACE CREATION // --
+-- // UNIFIED USER INTERFACE // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoCombatUI_v7"
+screenGui.Name = "SleekCombatHub_v8"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- Main Container Frame
+-- Single Base Window
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 190, 0, 245)
+mainFrame.Size = UDim2.new(0, 420, 0, 250)
 mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
-mainFrame.Draggable = true -- Enabled dragging to assist positioning
+mainFrame.Draggable = true
 mainFrame.Parent = screenGui
 
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 8)
-uiCorner.Parent = mainFrame
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 8)
+mainCorner.Parent = mainFrame
 
--- Portal Selection Side-Panel
-local portalFrame = Instance.new("Frame")
-portalFrame.Size = UDim2.new(0, 220, 0, 245)
-portalFrame.Position = UDim2.new(1, 5, 0, 0) -- Docks to the right side of mainFrame
-portalFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-portalFrame.BorderSizePixel = 0
-portalFrame.Parent = mainFrame
+-- Left Sidebar Container
+local sidebarFrame = Instance.new("Frame")
+sidebarFrame.Size = UDim2.new(0, 180, 1, 0)
+sidebarFrame.Position = UDim2.new(0, 0, 0, 0)
+sidebarFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+sidebarFrame.BorderSizePixel = 0
+sidebarFrame.Parent = mainFrame
 
-local portalCorner = Instance.new("UICorner")
-portalCorner.CornerRadius = UDim.new(0, 8)
-portalCorner.Parent = portalFrame
+local sidebarCorner = Instance.new("UICorner")
+sidebarCorner.CornerRadius = UDim.new(0, 8)
+sidebarCorner.Parent = sidebarFrame
 
+-- Hide raw rounded corners on the inner split edge
+local splitCover = Instance.new("Frame")
+splitCover.Size = UDim2.new(0, 10, 1, 0)
+splitCover.Position = UDim2.new(1, -10, 0, 0)
+splitCover.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+splitCover.BorderSizePixel = 0
+splitCover.Parent = sidebarFrame
+
+-- Right Content Panel Container
+local contentFrame = Instance.new("Frame")
+contentFrame.Size = UDim2.new(0, 240, 1, 0)
+contentFrame.Position = UDim2.new(0, 180, 0, 0)
+contentFrame.BackgroundTransparency = 1
+contentFrame.Parent = mainFrame
+
+-- Floating Restorers Button
+local floatingIcon = Instance.new("TextButton")
+floatingIcon.Name = "FloatingIcon"
+floatingIcon.Size = UDim2.new(0, 60, 0, 35)
+floatingIcon.Position = UDim2.new(0.1, 0, 0.1, 0) 
+floatingIcon.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+floatingIcon.Text = "OPEN"
+floatingIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+floatingIcon.Font = Enum.Font.SourceSansBold
+floatingIcon.TextSize = 13
+floatingIcon.Visible = false
+floatingIcon.Parent = screenGui
+
+local iconCorner = Instance.new("UICorner")
+iconCorner.CornerRadius = UDim.new(0, 6) 
+iconCorner.Parent = floatingIcon
+
+local iconStroke = Instance.new("UIStroke")
+iconStroke.Color = Color3.fromRGB(140, 60, 200)
+iconStroke.Thickness = 1.5
+iconStroke.Parent = floatingIcon
+
+-- Helper function for clean buttons inside sidebar
+local function createSidebarButton(name, text, yPos, height, color)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Size = UDim2.new(1, -16, 0, height)
+    btn.Position = UDim2.new(0, 8, 0, yPos)
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 13
+    btn.Parent = sidebarFrame
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 5)
+    corner.Parent = btn
+    return btn
+end
+
+-- Assemble Sidebar Controls
+local toggleButton = createSidebarButton("ToggleBtn", "SYSTEM: OFF", 10, 32, Color3.fromRGB(200, 60, 60))
+
+local minusBtn = Instance.new("TextButton")
+minusBtn.Size = UDim2.new(0, 28, 0, 28)
+minusBtn.Position = UDim2.new(0, 8, 0, 48)
+minusBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+minusBtn.Text = "-"
+minusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minusBtn.Font = Enum.Font.SourceSansBold
+minusBtn.TextSize = 16
+minusBtn.Parent = sidebarFrame
+
+local minusCorner = Instance.new("UICorner")
+minusCorner.CornerRadius = UDim.new(0, 5)
+minusCorner.Parent = minusBtn
+
+local heightLabel = Instance.new("TextLabel")
+heightLabel.Size = UDim2.new(1, -72, 0, 28)
+heightLabel.Position = UDim2.new(0, 36, 0, 48)
+heightLabel.BackgroundTransparency = 1
+heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
+heightLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+heightLabel.Font = Enum.Font.SourceSansBold
+heightLabel.TextSize = 13
+heightLabel.Parent = sidebarFrame
+
+local plusBtn = Instance.new("TextButton")
+plusBtn.Size = UDim2.new(0, 28, 0, 28)
+plusBtn.Position = UDim2.new(1, -36, 0, 48)
+plusBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+plusBtn.Text = "+"
+plusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+plusBtn.Font = Enum.Font.SourceSansBold
+plusBtn.TextSize = 16
+plusBtn.Parent = sidebarFrame
+
+local plusCorner = Instance.new("UICorner")
+plusCorner.CornerRadius = UDim.new(0, 5)
+plusCorner.Parent = plusBtn
+
+local equipButton = createSidebarButton("EquipBtn", "Auto-Equip: ON", 82, 28, Color3.fromRGB(60, 150, 200))
+local collectButton = createSidebarButton("CollectBtn", "Auto-Collect: ON", 114, 28, Color3.fromRGB(140, 60, 200))
+local potionButton = createSidebarButton("PotionBtn", "Auto-Potion: ON", 146, 28, Color3.fromRGB(210, 130, 40))
+local dungeonButton = createSidebarButton("DungeonBtn", "Auto-Dungeon: ON", 178, 28, Color3.fromRGB(220, 60, 100))
+
+-- Assemble Right Panel Layout
 local portalTitle = Instance.new("TextLabel")
-portalTitle.Size = UDim2.new(1, 0, 0, 25)
-portalTitle.Position = UDim2.new(0, 0, 0, 5)
+portalTitle.Size = UDim2.new(1, -40, 0, 25)
+portalTitle.Position = UDim2.new(0, 12, 0, 10)
 portalTitle.BackgroundTransparency = 1
-portalTitle.Text = "AVAILABLE PORTALS"
+portalTitle.Text = "PORTAL GATEWAY SCANNER"
 portalTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 portalTitle.Font = Enum.Font.SourceSansBold
-portalTitle.TextSize = 14
-portalTitle.Parent = portalFrame
+portalTitle.TextSize = 13
+portalTitle.TextXAlignment = Enum.TextXAlignment.Left
+portalTitle.Parent = contentFrame
+
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Size = UDim2.new(0, 24, 0, 24)
+minimizeButton.Position = UDim2.new(1, -32, 0, 10)
+minimizeButton.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+minimizeButton.Text = "—"
+minimizeButton.TextColor3 = Color3.fromRGB(200, 200, 200)
+minimizeButton.Font = Enum.Font.SourceSansBold
+minimizeButton.TextSize = 12
+minimizeButton.Parent = contentFrame
+
+local minCorner = Instance.new("UICorner")
+minCorner.CornerRadius = UDim.new(0, 5)
+minCorner.Parent = minimizeButton
 
 local refreshPortalsBtn = Instance.new("TextButton")
-refreshPortalsBtn.Size = UDim2.new(1, -20, 0, 25)
-refreshPortalsBtn.Position = UDim2.new(0, 10, 0, 32)
-refreshPortalsBtn.BackgroundColor3 = Color3.fromRGB(140, 60, 200)
-refreshPortalsBtn.Text = "🔄 REFRESH LIST"
+refreshPortalsBtn.Size = UDim2.new(1, -24, 0, 28)
+refreshPortalsBtn.Position = UDim2.new(0, 12, 0, 40)
+refreshPortalsBtn.BackgroundColor3 = Color3.fromRGB(35, 140, 105)
+refreshPortalsBtn.Text = "🔄 REFRESH PORTAL CACHE"
 refreshPortalsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 refreshPortalsBtn.Font = Enum.Font.SourceSansBold
 refreshPortalsBtn.TextSize = 12
-refreshPortalsBtn.Parent = portalFrame
+refreshPortalsBtn.Parent = contentFrame
 
-local portalRefreshCorner = Instance.new("UICorner")
-portalRefreshCorner.CornerRadius = UDim.new(0, 4)
-portalRefreshCorner.Parent = refreshPortalsBtn
+local refreshCorner = Instance.new("UICorner")
+refreshCorner.CornerRadius = UDim.new(0, 5)
+refreshCorner.Parent = refreshPortalsBtn
 
 local portalScroll = Instance.new("ScrollingFrame")
-portalScroll.Size = UDim2.new(1, -10, 0, 170)
-portalScroll.Position = UDim2.new(0, 5, 0, 65)
+portalScroll.Size = UDim2.new(1, -24, 0, 160)
+portalScroll.Position = UDim2.new(0, 12, 0, 75)
 portalScroll.BackgroundTransparency = 1
 portalScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 portalScroll.ScrollBarThickness = 4
-portalScroll.Parent = portalFrame
+portalScroll.Parent = contentFrame
 
 local portalListLayout = Instance.new("UIListLayout")
 portalListLayout.Padding = UDim.new(0, 4)
 portalListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 portalListLayout.Parent = portalScroll
 
--- Floating Icon
-local floatingIcon = Instance.new("TextButton")
-floatingIcon.Name = "FloatingIcon"
-floatingIcon.Size = UDim2.new(0, 50, 0, 50)
-floatingIcon.Position = UDim2.new(0.1, 0, 0.1, 0) 
-floatingIcon.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-floatingIcon.Text = "MENU"
-floatingIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
-floatingIcon.Font = Enum.Font.SourceSansBold
-floatingIcon.TextSize = 14
-floatingIcon.Visible = false
-floatingIcon.Parent = screenGui
-
-local iconCorner = Instance.new("UICorner")
-iconCorner.CornerRadius = UDim.new(0, 25) 
-iconCorner.Parent = floatingIcon
-
--- Helper function for standard buttons
-local function createButton(name, text, pos, size, color)
-    local btn = Instance.new("TextButton")
-    btn.Name = name
-    btn.Size = size
-    btn.Position = pos
-    btn.BackgroundColor3 = color
-    btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.SourceSansBold
-    btn.TextSize = 14
-    btn.Parent = mainFrame
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
-    return btn
-end
-
--- UI Buttons
-local toggleButton = createButton("ToggleBtn", "SYSTEM: OFF", UDim2.new(0, 5, 0, 5), UDim2.new(1, -45, 0, 35), Color3.fromRGB(200, 60, 60))
-local minimizeButton = createButton("MinimizeBtn", "—", UDim2.new(1, -35, 0, 5), UDim2.new(0, 30, 0, 35), Color3.fromRGB(50, 50, 50))
-
-local minusBtn = Instance.new("TextButton")
-minusBtn.Size = UDim2.new(0, 30, 0, 35)
-minusBtn.Position = UDim2.new(0, 5, 0, 45)
-minusBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-minusBtn.Text = "-"
-minusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-minusBtn.Font = Enum.Font.SourceSansBold
-minusBtn.TextSize = 18
-minusBtn.Parent = mainFrame
-
-local btnCorner2 = Instance.new("UICorner")
-btnCorner2.CornerRadius = UDim.new(0, 6)
-btnCorner2.Parent = minusBtn
-
-local heightLabel = Instance.new("TextLabel")
-heightLabel.Size = UDim2.new(1, -80, 0, 35)
-heightLabel.Position = UDim2.new(0, 40, 0, 45)
-heightLabel.BackgroundTransparency = 1
-heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
-heightLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-heightLabel.Font = Enum.Font.SourceSansBold
-heightLabel.TextSize = 14
-heightLabel.Parent = mainFrame
-
-local plusBtn = Instance.new("TextButton")
-plusBtn.Size = UDim2.new(0, 30, 0, 35)
-plusBtn.Position = UDim2.new(1, -35, 0, 45)
-plusBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-plusBtn.Text = "+"
-plusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-plusBtn.Font = Enum.Font.SourceSansBold
-plusBtn.TextSize = 18
-plusBtn.Parent = mainFrame
-
-local btnCorner3 = Instance.new("UICorner")
-btnCorner3.CornerRadius = UDim.new(0, 6)
-btnCorner3.Parent = plusBtn
-
-local equipButton = createButton("EquipBtn", "Auto-Equip: ON", UDim2.new(0, 5, 0, 85), UDim2.new(1, -10, 0, 35), Color3.fromRGB(60, 150, 200))
-local collectButton = createButton("CollectBtn", "Auto-Collect: ON", UDim2.new(0, 5, 0, 125), UDim2.new(1, -10, 0, 35), Color3.fromRGB(140, 60, 200))
-local potionButton = createButton("PotionBtn", "Auto-Potion: ON", UDim2.new(0, 5, 0, 165), UDim2.new(1, -10, 0, 35), Color3.fromRGB(210, 130, 40))
-local dungeonButton = createButton("DungeonBtn", "Auto-Dungeon: ON", UDim2.new(0, 5, 0, 205), UDim2.new(1, -10, 0, 35), Color3.fromRGB(220, 60, 100))
-
--- // UI INTERACTION LOGIC // --
+-- // INTERACTION LOGIC // --
 minimizeButton.MouseButton1Click:Connect(function()
     mainFrame.Visible = false
     floatingIcon.Visible = true
@@ -201,25 +235,25 @@ end)
 equipButton.MouseButton1Click:Connect(function()
     autoEquipEnabled = not autoEquipEnabled
     equipButton.Text = autoEquipEnabled and "Auto-Equip: ON" or "Auto-Equip: OFF"
-    equipButton.BackgroundColor3 = autoEquipEnabled and Color3.fromRGB(60, 150, 200) or Color3.fromRGB(100, 100, 100)
+    equipButton.BackgroundColor3 = autoEquipEnabled and Color3.fromRGB(60, 150, 200) or Color3.fromRGB(80, 80, 80)
 end)
 
 collectButton.MouseButton1Click:Connect(function()
     autoCollectEnabled = not autoCollectEnabled
     collectButton.Text = autoCollectEnabled and "Auto-Collect: ON" or "Auto-Collect: OFF"
-    collectButton.BackgroundColor3 = autoCollectEnabled and Color3.fromRGB(140, 60, 200) or Color3.fromRGB(100, 100, 100)
+    collectButton.BackgroundColor3 = autoCollectEnabled and Color3.fromRGB(140, 60, 200) or Color3.fromRGB(80, 80, 80)
 end)
 
 potionButton.MouseButton1Click:Connect(function()
     autoPotionEnabled = not autoPotionEnabled
     potionButton.Text = autoPotionEnabled and "Auto-Potion: ON" or "Auto-Potion: OFF"
-    potionButton.BackgroundColor3 = autoPotionEnabled and Color3.fromRGB(210, 130, 40) or Color3.fromRGB(100, 100, 100)
+    potionButton.BackgroundColor3 = autoPotionEnabled and Color3.fromRGB(210, 130, 40) or Color3.fromRGB(80, 80, 80)
 end)
 
 dungeonButton.MouseButton1Click:Connect(function()
     autoDungeonEnabled = not autoDungeonEnabled
     dungeonButton.Text = autoDungeonEnabled and "Auto-Dungeon: ON" or "Auto-Dungeon: OFF"
-    dungeonButton.BackgroundColor3 = autoDungeonEnabled and Color3.fromRGB(220, 60, 100) or Color3.fromRGB(100, 100, 100)
+    dungeonButton.BackgroundColor3 = autoDungeonEnabled and Color3.fromRGB(220, 60, 100) or Color3.fromRGB(80, 80, 80)
 end)
 
 minusBtn.MouseButton1Click:Connect(function()
@@ -232,21 +266,20 @@ plusBtn.MouseButton1Click:Connect(function()
     heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
 end)
 
--- // TARGET PORTAL TELEPORT & SERVER SEQUENCE // --
+-- // BYPASS MAGNITUDE AND TRIGGER GATEWAY // --
 local function teleportAndEnterPortal(portalObject, categoryName)
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
     if not root then return end
     
-    -- Track down target location geometry inside the object model
     local targetPart = portalObject:IsA("Model") and (portalObject.PrimaryPart or portalObject:FindFirstChildOfClass("BasePart")) or portalObject
     if not targetPart then return end
     
-    -- Bypass Magnitude: Move directly onto the portal coordinate target space
+    -- Snap player straight into the gateway box boundary
     root.CFrame = targetPart.CFrame * CFrame.new(0, 2, 0)
-    task.wait(0.2)
+    task.wait(0.25)
     
-    -- Fire execution logic captured via Cobalt logs
+    -- Call Server Remote Transactions
     pcall(function()
         getActDungeonPlayers:InvokeServer(portalObject.Name, 1)
     end)
@@ -256,9 +289,8 @@ local function teleportAndEnterPortal(portalObject, categoryName)
     end)
 end
 
--- // PORTAL SCANNER ENGINE // --
+-- // RUNTIME PORTAL PARSER ENGINE // --
 local function refreshPortalList()
-    -- Clear current list items
     for _, child in ipairs(portalScroll:GetChildren()) do
         if child:IsA("TextButton") then
             child:Destroy()
@@ -279,10 +311,10 @@ local function refreshPortalList()
                 itemsCount = itemsCount + 1
                 
                 local pBtn = Instance.new("TextButton")
-                pBtn.Size = UDim2.new(1, -10, 0, 28)
-                pBtn.BackgroundColor3 = category == "Normal" and Color3.fromRGB(45, 110, 45) 
-                                     or category == "Infinite" and Color3.fromRGB(45, 75, 110) 
-                                     or Color3.fromRGB(110, 45, 45)
+                pBtn.Size = UDim2.new(1, -8, 0, 26)
+                pBtn.BackgroundColor3 = category == "Normal" and Color3.fromRGB(48, 90, 48) 
+                                     or category == "Infinite" and Color3.fromRGB(48, 68, 95) 
+                                     or Color3.fromRGB(100, 45, 45)
                                      
                 pBtn.Text = string.format("[%s] %s", category:upper(), portal.Name)
                 pBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -301,12 +333,12 @@ local function refreshPortalList()
         end
     end
     
-    portalScroll.CanvasSize = UDim2.new(0, 0, 0, itemsCount * 32)
+    portalScroll.CanvasSize = UDim2.new(0, 0, 0, itemsCount * 30)
 end
 
 refreshPortalsBtn.MouseButton1Click:Connect(refreshPortalList)
 
--- // COMBAT ENGINE // --
+-- // MOB DETECTION ENGINE // --
 local function isEnemy(model)
     if model:IsA("Model") and model ~= player.Character then
         local humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -375,7 +407,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- // AUTO-POTION LOOP // --
+-- // AUTO HEALTH VIAL LOOP // --
 task.spawn(function()
     while true do
         task.wait(0.3)
@@ -396,7 +428,7 @@ task.spawn(function()
     end
 end)
 
--- // EXTENDED DROP COLLECTION (CAMERA SPACE ADDITION) // --
+-- // EXTENDED DROP VACUUM SYSTEM // --
 local function processDrop(obj)
     if not systemEnabled or not autoCollectEnabled or not obj then return end
     
@@ -437,7 +469,6 @@ end
 
 workspace.DescendantAdded:Connect(processDrop)
 
--- Camera Descendant Listener (Captures workspace.Camera.Drops dynamically)
 local cameraInstance = workspace:FindFirstChildOfClass("Camera") or workspace:FindFirstChild("Camera")
 if cameraInstance then
     cameraInstance.DescendantAdded:Connect(processDrop)
@@ -447,11 +478,9 @@ task.spawn(function()
     while true do
         task.wait(0.5)
         if systemEnabled and autoCollectEnabled then
-            -- Scan traditional workspace
             for _, obj in ipairs(workspace:GetDescendants()) do
                 processDrop(obj)
             end
-            -- Scan hidden Camera space hierarchy
             local activeCam = workspace.CurrentCamera or workspace:FindFirstChild("Camera")
             if activeCam and activeCam:FindFirstChild("Drops") then
                 for _, obj in ipairs(activeCam.Drops:GetDescendants()) do
@@ -462,7 +491,7 @@ task.spawn(function()
     end
 end)
 
--- // AUTO WEAPON EQUIP LOOP // --
+-- // AUTO COMBAT WEAPON ENGAGEMENT // --
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -480,7 +509,6 @@ task.spawn(function()
     end
 end)
 
--- // HYBRID ATTACK LOOP // --
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
@@ -496,7 +524,7 @@ task.spawn(function()
     end
 end)
 
--- // LOBBY GAME INTERACTION LOOP // --
+-- // LOBBY HANDSHAKE SYSTEM // --
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -516,7 +544,7 @@ task.spawn(function()
     end
 end)
 
--- // AUTO SKILL CAST LOOP // --
+-- // SPELLCAST ROTATION ENGINE // --
 local skills = {Enum.KeyCode.F, Enum.KeyCode.R, Enum.KeyCode.C}
 
 task.spawn(function()
@@ -535,5 +563,4 @@ task.spawn(function()
     end
 end)
 
--- Initial populate on execution
 task.delay(1, refreshPortalList)
