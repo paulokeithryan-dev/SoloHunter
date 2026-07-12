@@ -20,7 +20,7 @@ local autoCollectEnabled = true
 local autoPotionEnabled = true   
 local autoDungeonEnabled = true  -- New Feature
 
-local HOVER_HEIGHT = 4        
+local HOVER_HEIGHT = 4         
 local MAX_DETECTION_DIST = 300  
 local M1_SPEED = 0.1            
 local SKILL_INTERVAL = 1.5      
@@ -220,11 +220,20 @@ end
 -- // POSITIONING & AIMING LOOP // --
 local targetEnemy = nil
 
-RunService.Heartbeat:Connect(function()
-    if not systemEnabled then 
-        targetEnemy = nil
-        return 
+-- Throttled Target Locator Thread to resolve FPS drops/crashes
+task.spawn(function()
+    while true do
+        if systemEnabled then
+            targetEnemy = getClosestEnemy()
+        else
+            targetEnemy = nil
+        end
+        task.wait(0.1)
     end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if not systemEnabled then return end
 
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -232,9 +241,7 @@ RunService.Heartbeat:Connect(function()
     
     if not root or (humanoid and humanoid.Health <= 0) then return end
     
-    targetEnemy = getClosestEnemy()
-    
-    if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") then
+    if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") and targetEnemy:FindFirstChildOfClass("Humanoid") and targetEnemy:FindFirstChildOfClass("Humanoid").Health > 0 then
         local enemyRoot = targetEnemy.HumanoidRootPart
         local _, boxSize = targetEnemy:GetBoundingBox()
         
@@ -243,6 +250,8 @@ RunService.Heartbeat:Connect(function()
         
         root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
         root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+    else
+        targetEnemy = nil
     end
 end)
 
@@ -271,6 +280,21 @@ end)
 local function processDrop(obj)
     if not systemEnabled or not autoCollectEnabled or not obj then return end
     
+    -- High Performance Proximity Prompt Triggering
+    if obj:IsA("ProximityPrompt") then
+        task.spawn(function()
+            if fireproximityprompt then
+                fireproximityprompt(obj)
+            else
+                pcall(function() dropRemote:InvokeServer(obj) end)
+                if obj.Parent and obj.Parent:IsA("Model") then
+                    pcall(function() dropRemote:InvokeServer(obj.Parent) end)
+                end
+            end
+        end)
+        return
+    end
+
     local nameLower = obj.Name:lower()
     local parentNameLower = (obj.Parent and obj.Parent.Name:lower()) or ""
     
@@ -279,7 +303,6 @@ local function processDrop(obj)
         or nameLower:find("item")
         or parentNameLower:find("drop") 
         or parentNameLower:find("loot")
-        or obj:IsA("ProximityPrompt")
         or obj:IsA("TouchTransmitter")
         
     if isDrop then
@@ -346,9 +369,18 @@ task.spawn(function()
     while true do
         task.wait(1.5) -- Throttled perfectly to prevent triggering server spam limits
         if systemEnabled and autoDungeonEnabled then
-            -- Safely tries to auto-start dungeons or accept entry gates if prompts appear
-            task.spawn(pcall, function() startDungeonRemote:InvokeServer() end)
-            task.spawn(pcall, function() enterGateRemote:InvokeServer() end)
+            -- Verify visible layout presence prior to calling Remotes
+            local mainGui = playerGui:FindFirstChild("Main")
+            local startBtn = mainGui and mainGui:FindFirstChild("StartBtn")
+            
+            if startBtn and startBtn.Visible then
+                task.spawn(pcall, function() startDungeonRemote:InvokeServer() end)
+            end
+            
+            local gateGui = playerGui:FindFirstChild("Gate")
+            if gateGui and (gateGui.Enabled or (gateGui:FindFirstChild("Main") and gateGui.Main.Visible)) then
+                task.spawn(pcall, function() enterGateRemote:InvokeServer() end)
+            end
         end
     end
 end)
