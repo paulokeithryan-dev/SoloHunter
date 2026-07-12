@@ -1,7 +1,7 @@
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PathfindingService = game:GetService("PathfindingService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -23,16 +23,24 @@ local autoCollectEnabled = true
 local autoPotionEnabled = true   
 local autoDungeonEnabled = true  
 
-local HOVER_HEIGHT = 4         
-local MAX_DETECTION_DIST = 500  -- Increased detection radius
-local M1_SPEED = 0.05            -- Maximum attack speed capability
-local SKILL_INTERVAL = 1.0      -- Faster spell loops
+local STOP_DISTANCE = 4         -- Replaced hover height with stop/attack radius
+local MAX_DETECTION_DIST = 500  
+local M1_SPEED = 0.05            
+local SKILL_INTERVAL = 1.0      
 
 local processedDrops = {}
 
+-- Initialize Path Instance
+local path = PathfindingService:CreatePath({
+    AgentRadius = 3,
+    AgentHeight = 6,
+    AgentCanJump = true,
+    WaypointSpacing = 4
+})
+
 -- // AUTOMATIC LAYOUT INTERFACE DESIGN // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "SleekCombatHub_v13"
+screenGui.Name = "SleekPathHub_v14"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
@@ -131,12 +139,12 @@ end
 local toggleButton = createSidebarButton("ToggleBtn", "SYSTEM: OFF", Color3.fromRGB(200, 60, 60))
 toggleButton.Size = UDim2.new(1, -16, 0, 32)
 
--- Height Adjustment Row
-local heightContainer = Instance.new("Frame")
-heightContainer.Name = "HeightContainer"
-heightContainer.Size = UDim2.new(1, -16, 0, 28)
-heightContainer.BackgroundTransparency = 1
-heightContainer.Parent = sidebarFrame
+-- Stop Distance Adjustment Row (Repurposed from Height Row)
+local distanceContainer = Instance.new("Frame")
+distanceContainer.Name = "DistanceContainer"
+distanceContainer.Size = UDim2.new(1, -16, 0, 28)
+distanceContainer.BackgroundTransparency = 1
+distanceContainer.Parent = sidebarFrame
 
 local minusBtn = Instance.new("TextButton")
 minusBtn.Size = UDim2.new(0, 28, 1, 0)
@@ -146,21 +154,21 @@ minusBtn.Text = "-"
 minusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 minusBtn.Font = Enum.Font.SourceSansBold
 minusBtn.TextSize = 16
-minusBtn.Parent = heightContainer
+minusBtn.Parent = distanceContainer
 
 local minusCorner = Instance.new("UICorner")
 minusCorner.CornerRadius = UDim.new(0, 5)
 minusCorner.Parent = minusBtn
 
-local heightLabel = Instance.new("TextLabel")
-heightLabel.Size = UDim2.new(1, -64, 1, 0)
-heightLabel.Position = UDim2.new(0, 32, 0, 0)
-heightLabel.BackgroundTransparency = 1
-heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
-heightLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-heightLabel.Font = Enum.Font.SourceSansBold
-heightLabel.TextSize = 13
-heightLabel.Parent = heightContainer
+local distanceLabel = Instance.new("TextLabel")
+distanceLabel.Size = UDim2.new(1, -64, 1, 0)
+distanceLabel.Position = UDim2.new(0, 32, 0, 0)
+distanceLabel.BackgroundTransparency = 1
+distanceLabel.Text = "Dist: " .. tostring(STOP_DISTANCE)
+distanceLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+distanceLabel.Font = Enum.Font.SourceSansBold
+distanceLabel.TextSize = 13
+distanceLabel.Parent = distanceContainer
 
 local plusBtn = Instance.new("TextButton")
 plusBtn.Size = UDim2.new(0, 28, 1, 0)
@@ -170,7 +178,7 @@ plusBtn.Text = "+"
 plusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 plusBtn.Font = Enum.Font.SourceSansBold
 plusBtn.TextSize = 16
-plusBtn.Parent = heightContainer
+plusBtn.Parent = distanceContainer
 
 local plusCorner = Instance.new("UICorner")
 plusCorner.CornerRadius = UDim.new(0, 5)
@@ -278,13 +286,13 @@ dungeonButton.MouseButton1Click:Connect(function()
 end)
 
 minusBtn.MouseButton1Click:Connect(function()
-    HOVER_HEIGHT = math.clamp(HOVER_HEIGHT - 1, 0, 30)
-    heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
+    STOP_DISTANCE = math.clamp(STOP_DISTANCE - 1, 1, 30)
+    distanceLabel.Text = "Dist: " .. tostring(STOP_DISTANCE)
 end)
 
 plusBtn.MouseButton1Click:Connect(function()
-    HOVER_HEIGHT = math.clamp(HOVER_HEIGHT + 1, 0, 30)
-    heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
+    STOP_DISTANCE = math.clamp(STOP_DISTANCE + 1, 1, 30)
+    distanceLabel.Text = "Dist: " .. tostring(STOP_DISTANCE)
 end)
 
 -- // PORTAL NAVIGATION BYPASS // --
@@ -341,7 +349,7 @@ local function refreshPortalList()
 end
 refreshPortalsBtn.MouseButton1Click:Connect(refreshPortalList)
 
--- // HIGH-AGGRESSION UNLOCKED COMBAT ENGINE // --
+-- // UNLOCKED TARGET SCANNER // --
 local function isEnemy(model)
     if model and model:IsA("Model") and model ~= player.Character then
         local humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -359,7 +367,6 @@ local function getClosestEnemy()
     local closestEnemy = nil
     local shortestDistance = MAX_DETECTION_DIST
 
-    -- UNLOCKED: Restored complete deep-hierarchy scan to bypass map structure organization
     for _, obj in ipairs(workspace:GetDescendants()) do
         if isEnemy(obj) then
             local distance = (playerRoot.Position - obj.HumanoidRootPart.Position).Magnitude
@@ -380,25 +387,54 @@ task.spawn(function()
         else
             targetEnemy = nil
         end
-        task.wait(0.05) -- Accelerated loop refresh rate
+        task.wait(0.05) 
     end
 end)
 
-RunService.Heartbeat:Connect(function()
-    if not systemEnabled then return end
-    local character = player.Character
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-    if not root or (character:FindFirstChildOfClass("Humanoid") and character:FindFirstChildOfClass("Humanoid").Health <= 0) then return end
-    
-    if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") and targetEnemy:FindFirstChildOfClass("Humanoid") and targetEnemy:FindFirstChildOfClass("Humanoid").Health > 0 then
-        local enemyRoot = targetEnemy.HumanoidRootPart
-        local _, boxSize = targetEnemy:GetBoundingBox()
-        local targetPosition = Vector3.new(enemyRoot.Position.X, enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT, enemyRoot.Position.Z)
-        
-        root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
-        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-    else
-        targetEnemy = nil
+-- // HIGH-RECALCULATION PATHFINDING LOCOMOTION ENGINE // --
+task.spawn(function()
+    while true do
+        task.wait(0.1) -- Rapid repathing to track moving enemies accurately
+        if systemEnabled and targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") then
+            local character = player.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            local root = character and character:FindFirstChild("HumanoidRootPart")
+            
+            if humanoid and root and humanoid.Health > 0 then
+                local enemyRoot = targetEnemy.HumanoidRootPart
+                local distanceToEnemy = (root.Position - enemyRoot.Position).Magnitude
+                
+                -- Only walk if we are further out than the stop distance configuration
+                if distanceToEnemy > STOP_DISTANCE then
+                    local success, _ = pcall(function()
+                        path:ComputeAsync(root.Position, enemyRoot.Position)
+                    end)
+                    
+                    if success and path.Status == Enum.PathStatus.Success then
+                        local waypoints = path:GetWaypoints()
+                        if #waypoints > 1 then
+                            local nextWaypoint = waypoints[2] -- Index 1 is current pos, 2 is next step
+                            
+                            -- Handle jumping over obstacles automatically
+                            if nextWaypoint.Action == Enum.PathWaypointAction.Jump then
+                                humanoid.Jump = true
+                            end
+                            
+                            humanoid:MoveTo(nextWaypoint.Position)
+                        else
+                            humanoid:MoveTo(enemyRoot.Position)
+                        end
+                    else
+                        -- Physics Fallback
+                        humanoid:MoveTo(enemyRoot.Position)
+                    end
+                else
+                    -- Stop moving and face the target directly when close enough to attack
+                    humanoid:MoveTo(root.Position)
+                    root.CFrame = CFrame.lookAt(root.Position, Vector3.new(enemyRoot.Position.X, root.Position.Y, enemyRoot.Position.Z))
+                end
+            end
+        end
     end
 end)
 
@@ -461,7 +497,7 @@ end
 
 task.spawn(function()
     while true do
-        task.wait(0.2) -- Fast capture cycle
+        task.wait(0.2) 
         if systemEnabled and autoCollectEnabled then
             local activeCam = workspace.CurrentCamera or workspace:FindFirstChild("Camera")
             local dropsFolder = activeCam and activeCam:FindFirstChild("Drops")
