@@ -15,15 +15,14 @@ local autoDungeonEnabled = true
 
 local STOP_DISTANCE = 4         
 local WALK_SPEED = 32           
-local ATTACK_RANGE = 12         
+local ATTACK_RANGE = 12 
 local MAX_DETECTION_DIST = 1000 
 local M1_SPEED = 0.05            
 local SKILL_INTERVAL = 1.0      
 
 local processedDrops = {}
-local lastMoveToTarget = Vector3.new(0, 0, 0)
 
--- Initialize Pathfinding
+-- Initialize Pathfinding Engine
 local path = PathfindingService:CreatePath({
     AgentRadius = 3,
     AgentHeight = 6,
@@ -32,10 +31,10 @@ local path = PathfindingService:CreatePath({
 })
 
 -- =============================================================================
--- PHASE 1: IMMEDIATE UI RENDER (Runs first to guarantee visibility)
+-- PHASE 1: IMMEDIATE UI RENDER
 -- =============================================================================
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "CoreEngine_v19"
+screenGui.Name = "CoreEngine_v21"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
@@ -164,7 +163,7 @@ local function createAdjustmentRow(labelText, startVal, callbackMinus, callbackP
     plus.MouseButton1Click:Connect(function() callbackPlus(lbl) end)
 end
 
--- Render Interactive Controls
+-- Render Controls
 local toggleButton = createMenuButton("SYSTEM: OFF", Color3.fromRGB(200, 60, 60))
 toggleButton.Size = UDim2.new(1, -16, 0, 30)
 
@@ -197,7 +196,7 @@ local collectButton = createMenuButton("Auto-Collect: ON", Color3.fromRGB(110, 5
 local potionButton = createMenuButton("Auto-Potion: ON", Color3.fromRGB(170, 95, 30))
 local dungeonButton = createMenuButton("Auto-Dungeon: ON", Color3.fromRGB(180, 45, 80))
 
--- UI Event Connections
+-- UI Action Listeners
 minimizeButton.MouseButton1Click:Connect(function()
     mainFrame.Visible = false
     floatingIcon.Visible = true
@@ -246,7 +245,6 @@ dungeonButton.MouseButton1Click:Connect(function()
     dungeonButton.BackgroundColor3 = autoDungeonEnabled and Color3.fromRGB(180, 45, 80) or Color3.fromRGB(70, 70, 70)
 end)
 
-
 -- =============================================================================
 -- PHASE 2: CRASH-PROOF REMOTE RESOLVER
 -- =============================================================================
@@ -266,28 +264,28 @@ local function secureFetchPath(pathArray)
     return currentObj
 end
 
--- Resolve Remotes safely without any risk of indexing nil
 local dropRemote = secureFetchPath({"ReplicatedStorage", "RemoteServices", "DropsService", "RF", "CollectDrop"})
 local healRemote = secureFetchPath({"ReplicatedStorage", "RemoteServices", "HealingService", "RF", "UseHeal"})
 local useWeaponRemote = secureFetchPath({"ReplicatedStorage", "RemoteServices", "CombatService", "RF", "UseWeapon"})
 local startDungeonRemote = secureFetchPath({"ReplicatedStorage", "RemoteServices", "DungeonService", "RF", "StartDungeon"})
 local enterGateRemote = secureFetchPath({"ReplicatedStorage", "RemoteServices", "PortalService", "RF", "CanEnterGate"})
 
-
 -- =============================================================================
--- PHASE 3: INSULATED BACKEND WORKERS (Protected loops)
+-- PHASE 3: THE TRACKING & MOTION ENGINE
 -- =============================================================================
 
--- Target Acquisition Loop
+-- High-Performance Radius Scanner
 local targetEnemy = nil
 task.spawn(function()
-    local function isEnemy(model)
-        if model and model:IsA("Model") and model ~= player.Character then
-            local humanoid = model:FindFirstChildOfClass("Humanoid")
-            local root = model:FindFirstChild("HumanoidRootPart")
-            if humanoid and root and humanoid.Health > 0 then return true end
+    local function getEnemyModelFromPart(part)
+        local current = part
+        while current and current ~= workspace do
+            if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") then
+                return current
+            end
+            current = current.Parent
         end
-        return false
+        return nil
     end
 
     while true do
@@ -298,13 +296,31 @@ task.spawn(function()
             if playerRoot then
                 local closestEnemy = nil
                 local shortestDistance = MAX_DETECTION_DIST
-
-                for _, obj in ipairs(workspace:GetDescendants()) do
-                    if isEnemy(obj) then
-                        local distance = (playerRoot.Position - obj.HumanoidRootPart.Position).Magnitude
-                        if distance < shortestDistance then
-                            shortestDistance = distance
-                            closestEnemy = obj
+                
+                local overlapParams = OverlapParams.new()
+                overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+                overlapParams.FilterDescendantsInstances = {character}
+                
+                local success, parts = pcall(function()
+                    return workspace:GetPartBoundsInRadius(playerRoot.Position, MAX_DETECTION_DIST, overlapParams)
+                end)
+                
+                if success and parts then
+                    local checkedModels = {}
+                    for _, part in ipairs(parts) do
+                        local model = getEnemyModelFromPart(part)
+                        if model and not checkedModels[model] and model ~= character then
+                            checkedModels[model] = true
+                            local hum = model:FindFirstChildOfClass("Humanoid")
+                            local eRoot = model:FindFirstChild("HumanoidRootPart")
+                            
+                            if hum and eRoot and hum.Health > 0 then
+                                local distance = (playerRoot.Position - eRoot.Position).Magnitude
+                                if distance < shortestDistance then
+                                    shortestDistance = distance
+                                    closestEnemy = model
+                                end
+                            end
                         end
                     end
                 end
@@ -319,10 +335,14 @@ task.spawn(function()
     end
 end)
 
--- Locomotion & Pathfinding Engine
+-- Scent-Tracker Locomotion (Only recomputes when previous marker is fully exhausted)
 task.spawn(function()
+    local currentWaypoints = {}
+    local currentWaypointIndex = 1
+    local destinationSpot = nil
+
     while true do
-        task.wait(0.1) 
+        task.wait(0.02) -- Blazing fast loop speed for perfect responsiveness
         if systemEnabled and targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") then
             local character = player.Character
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -335,40 +355,53 @@ task.spawn(function()
                 local distanceToEnemy = (root.Position - enemyRoot.Position).Magnitude
                 
                 if distanceToEnemy > STOP_DISTANCE then
-                    local success, _ = pcall(function()
-                        path:ComputeAsync(root.Position, enemyRoot.Position)
-                    end)
-                    
-                    if success and path.Status == Enum.PathStatus.Success then
-                        local waypoints = path:GetWaypoints()
-                        if #waypoints > 1 then
-                            local nextWaypoint = waypoints[2]
-                            if nextWaypoint.Action == Enum.PathWaypointAction.Jump then
-                                humanoid.Jump = true
-                            end
-                            
-                            if (nextWaypoint.Position - lastMoveToTarget).Magnitude > 1.5 then
-                                lastMoveToTarget = nextWaypoint.Position
-                                humanoid:MoveTo(nextWaypoint.Position)
-                            end
+                    -- CRITICAL GATING: Only create a new path if we don't have one, or if we fully reached our old target location
+                    if not destinationSpot or #currentWaypoints == 0 or currentWaypointIndex > #currentWaypoints then
+                        destinationSpot = enemyRoot.Position
+                        
+                        pcall(function()
+                            path:ComputeAsync(root.Position, destinationSpot)
+                        end)
+                        
+                        if path.Status == Enum.PathStatus.Success then
+                            currentWaypoints = path:GetWaypoints()
+                            currentWaypointIndex = 2 
                         else
-                            if (enemyRoot.Position - lastMoveToTarget).Magnitude > 1.5 then
-                                lastMoveToTarget = enemyRoot.Position
-                                humanoid:MoveTo(enemyRoot.Position)
-                            end
+                            -- Fallback: Directly run towards it if pathfinding drops
+                            currentWaypoints = {}
+                            humanoid:MoveTo(destinationSpot)
                         end
-                    else
-                        if (enemyRoot.Position - lastMoveToTarget).Magnitude > 1.5 then
-                            lastMoveToTarget = enemyRoot.Position
-                            humanoid:MoveTo(enemyRoot.Position)
+                    end
+                    
+                    -- Smoothly cycle through the mapped out coordinates
+                    if #currentWaypoints > 0 and currentWaypointIndex <= #currentWaypoints then
+                        local targetWaypoint = currentWaypoints[currentWaypointIndex]
+                        
+                        -- Move smoothly towards current node point
+                        humanoid:MoveTo(targetWaypoint.Position)
+                        
+                        if targetWaypoint.Action == Enum.PathWaypointAction.Jump then
+                            humanoid.Jump = true
+                        end
+                        
+                        -- Check if we arrived at this specific node point
+                        if (root.Position - targetWaypoint.Position).Magnitude < 3.5 then
+                            currentWaypointIndex = currentWaypointIndex + 1
                         end
                     end
                 else
-                    lastMoveToTarget = root.Position
+                    -- Within hitting distance: slam full brakes and look directly at them
                     humanoid:MoveTo(root.Position)
                     root.CFrame = CFrame.lookAt(root.Position, Vector3.new(enemyRoot.Position.X, root.Position.Y, enemyRoot.Position.Z))
+                    
+                    -- Wipe variables clean so we recompute instantly if they try to bounce
+                    currentWaypoints = {}
+                    destinationSpot = nil
                 end
             end
+        else
+            currentWaypoints = {}
+            destinationSpot = nil
         end
     end
 end)
@@ -475,15 +508,13 @@ task.spawn(function()
     while true do
         task.wait(0.8)
         if systemEnabled and autoDungeonEnabled then
-            -- Internal UI scanner
             local mainGui = playerGui:FindFirstChild("Main")
             if mainGui and mainGui:FindFirstChild("StartBtn") and mainGui.StartBtn.Visible and startDungeonRemote then
                 pcall(function() startDungeonRemote:InvokeServer() end)
             end
             
-            -- Dynamic text button scanner for text matches
             for _, gui in ipairs(playerGui:GetChildren()) do
-                if gui:IsA("ScreenGui") and gui.Name ~= "CoreEngine_v19" then
+                if gui:IsA("ScreenGui") and gui.Name ~= "CoreEngine_v21" then
                     for _, element in ipairs(gui:GetDescendants()) do
                         if element:IsA("TextButton") and element.Visible and startDungeonRemote then
                             local txt = string.lower(element.Text)
@@ -495,7 +526,6 @@ task.spawn(function()
                 end
             end
             
-            -- Portal Gate auto-entry confirmation
             local gateGui = playerGui:FindFirstChild("Gate")
             if gateGui and enterGateRemote then
                 if gateGui.Enabled or (gateGui:FindFirstChild("Main") and gateGui.Main.Visible) then
