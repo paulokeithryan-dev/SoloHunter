@@ -6,15 +6,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- // EXPLOIT REMOTES (Sourced from your hooks) // --
+-- // EXPLOIT REMOTES // --
 local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
 
 -- // STATE FLAGS & CONFIG // --
 local systemEnabled = false
 local autoEquipEnabled = true 
-local autoCollectEnabled = true  -- New
-local autoPotionEnabled = true   -- New
+local autoCollectEnabled = true  
+local autoPotionEnabled = true   
 
 local HOVER_HEIGHT = 4        
 local MAX_DETECTION_DIST = 300  
@@ -23,29 +23,51 @@ local SKILL_INTERVAL = 1.5
 
 -- // USER INTERFACE CREATION // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoCombatUI_v3"
+screenGui.Name = "AutoCombatUI_v4"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- Expanded Main Container Frame to hold the two new toggles (Height increased to 205)
+-- Main Container Frame (Draggable disabled)
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 190, 0, 205)
 mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
-mainFrame.Draggable = true 
+mainFrame.Draggable = false -- Made undraggable
 mainFrame.Parent = screenGui
 
 local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(0, 8)
 uiCorner.Parent = mainFrame
 
--- Helper function to rapidly generate standardized styling for buttons
-local function createButton(name, text, pos, color)
+-- Floating Icon (Appears only when menu is minimized)
+local floatingIcon = Instance.new("TextButton")
+floatingIcon.Name = "FloatingIcon"
+floatingIcon.Size = UDim2.new(0, 50, 0, 50)
+floatingIcon.Position = UDim2.new(0.1, 0, 0.1, 0) -- Spawns at same initial area
+floatingIcon.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+floatingIcon.Text = "MENU"
+floatingIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+floatingIcon.Font = Enum.Font.SourceSansBold
+floatingIcon.TextSize = 14
+floatingIcon.Visible = false
+floatingIcon.Parent = screenGui
+
+local iconCorner = Instance.new("UICorner")
+iconCorner.CornerRadius = UDim.new(0, 25) -- Makes it a perfect floating circle
+iconCorner.Parent = floatingIcon
+
+local iconStroke = Instance.new("UIStroke")
+iconStroke.Color = Color3.fromRGB(140, 60, 200)
+iconStroke.Thickness = 2
+iconStroke.Parent = floatingIcon
+
+-- Helper function for standard buttons
+local function createButton(name, text, pos, size, color)
     local btn = Instance.new("TextButton")
     btn.Name = name
-    btn.Size = UDim2.new(1, -10, 0, 35)
+    btn.Size = size
     btn.Position = pos
     btn.BackgroundColor3 = color
     btn.Text = text
@@ -60,8 +82,11 @@ local function createButton(name, text, pos, color)
     return btn
 end
 
--- 1. Main System Toggle Button
-local toggleButton = createButton("ToggleBtn", "SYSTEM: OFF", UDim2.new(0, 5, 0, 5), Color3.fromRGB(200, 60, 60))
+-- 1. Main System Toggle Button (Narrowed slightly to fit minimize button)
+local toggleButton = createButton("ToggleBtn", "SYSTEM: OFF", UDim2.new(0, 5, 0, 5), UDim2.new(1, -45, 0, 35), Color3.fromRGB(200, 60, 60))
+
+-- Minimize Button (-)
+local minimizeButton = createButton("MinimizeBtn", "—", UDim2.new(1, -35, 0, 5), UDim2.new(0, 30, 0, 35), Color3.fromRGB(50, 50, 50))
 
 -- 2. Height Adjustment Elements
 local minusBtn = Instance.new("TextButton")
@@ -102,16 +127,22 @@ local btnCorner3 = Instance.new("UICorner")
 btnCorner3.CornerRadius = UDim.new(0, 6)
 btnCorner3.Parent = plusBtn
 
--- 3. Auto-Equip Toggle Button
-local equipButton = createButton("EquipBtn", "Auto-Equip: ON", UDim2.new(0, 5, 0, 85), Color3.fromRGB(60, 150, 200))
+-- 3. Configuration Toggles
+local equipButton = createButton("EquipBtn", "Auto-Equip: ON", UDim2.new(0, 5, 0, 85), UDim2.new(1, -10, 0, 35), Color3.fromRGB(60, 150, 200))
+local collectButton = createButton("CollectBtn", "Auto-Collect: ON", UDim2.new(0, 5, 0, 125), UDim2.new(1, -10, 0, 35), Color3.fromRGB(140, 60, 200))
+local potionButton = createButton("PotionBtn", "Auto-Potion: ON", UDim2.new(0, 5, 0, 165), UDim2.new(1, -10, 0, 35), Color3.fromRGB(210, 130, 40))
 
--- 4. Auto-Collect Drops Toggle Button
-local collectButton = createButton("CollectBtn", "Auto-Collect: ON", UDim2.new(0, 5, 0, 125), Color3.fromRGB(140, 60, 200))
+-- // UI INTERACTION LOGIC // --
+minimizeButton.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+    floatingIcon.Visible = true
+end)
 
--- 5. Auto-Potion Toggle Button
-local potionButton = createButton("PotionBtn", "Auto-Potion: ON", UDim2.new(0, 5, 0, 165), Color3.fromRGB(210, 130, 40))
+floatingIcon.MouseButton1Click:Connect(function()
+    floatingIcon.Visible = false
+    mainFrame.Visible = true
+end)
 
--- // UI LOGIC CONNECTORS // --
 toggleButton.MouseButton1Click:Connect(function()
     systemEnabled = not systemEnabled
     if systemEnabled then
@@ -228,23 +259,20 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- // SMART AUTO-POTION LOOP // --
+-- // AUTO-POTION LOOP // --
 task.spawn(function()
     while true do
-        task.wait(0.3) -- Fast scanning check
+        task.wait(0.3)
         if systemEnabled and autoPotionEnabled then
             local character = player.Character
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
             
             if humanoid and humanoid.Health > 0 then
-                -- Calculate percentage accurately
                 local hpPercent = humanoid.Health / humanoid.MaxHealth
                 if hpPercent <= 0.5 then
-                    -- Safely invoke the remote without breaking the script if it errors
                     pcall(function()
                         healRemote:InvokeServer()
                     end)
-                    -- Potion cooldown to prevent the server from penalizing or kicking you for spamming
                     task.wait(1.5) 
                 end
             end
@@ -252,34 +280,32 @@ task.spawn(function()
     end
 end)
 
--- // SMART AUTO-COLLECT DROPS LOOP // --
+-- // REAL-TIME WORKSPACE MAP MONITOR FOR DROPS // --
+local function processDrop(obj)
+    -- Targets objects containing "drop" in their name, or items with proximity prompts/mesh identifiers common to drops
+    if obj.Name:lower():find("drop") or obj.Name == "ItemDrop" then
+        pcall(function()
+            dropRemote:InvokeServer(obj)
+        end)
+    end
+end
+
 task.spawn(function()
-    while true do
-        task.wait(1) -- Scans for items every second to ensure high game performance
+    -- 1. Scan and instantly clear everything currently on the map upon running
+    for _, obj in ipairs(workspace:GetDescendants()) do
         if systemEnabled and autoCollectEnabled then
-            -- Check for a dedicated folder first, then fall back to standard Workspace scanning
-            local targetFolder = workspace:FindFirstChild("Drops")
-            
-            if targetFolder then
-                for _, dropItem in ipairs(targetFolder:GetChildren()) do
-                    pcall(function()
-                        dropRemote:InvokeServer(dropItem)
-                    end)
-                    task.wait(0.02) -- Tiny throttle to prevent network packet drops
-                end
-            else
-                -- If drops are just scattered loose in Workspace, look for parts with "drop" in the name
-                for _, obj in ipairs(workspace:GetChildren()) do
-                    if obj.Name:lower():find("drop") and (obj:IsA("BasePart") or obj:IsA("Model")) then
-                        pcall(function()
-                            dropRemote:InvokeServer(obj)
-                        end)
-                        task.wait(0.02)
-                    end
-                end
-            end
+            processDrop(obj)
         end
     end
+    
+    -- 2. Establish a persistent active watcher on the workspace map
+    workspace.DescendantAdded:Connect(function(obj)
+        if systemEnabled and autoCollectEnabled then
+            -- A micro-delay ensures the drop data exists fully on your client before firing
+            task.wait(0.05) 
+            processDrop(obj)
+        end
+    end)
 end)
 
 -- // AUTO WEAPON EQUIP LOOP // --
