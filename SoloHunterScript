@@ -1,69 +1,85 @@
--- Pulling directly from GitHub raw source to bypass executor domain issues
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
+-- Clean up any previous instances of this GUI if re-running
+local CoreGui = game:GetService("CoreGui")
+if CoreGui:FindFirstChild("AutomationHubNative") then
+    CoreGui.AutomationHubNative:Destroy()
+end
 
--- 1. Create the Main Window Frame Safely
-local Window = Rayfield:CreateWindow({
-   Name = "Universal Automation Hub",
-   LoadingTitle = "Loading System...",
-   LoadingSubtitle = "by Assistant",
-   ConfigurationSaving = {
-      Enabled = false,
-      FolderName = nil,
-      FileName = "AutomationConfig"
-   },
-   Discord = {
-      Enabled = false,
-      Invite = "noinvitelink",
-      RememberJoins = true
-   },
-   KeySystem = false
-})
+-- 1. Main UI Initialization (Native Instances)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AutomationHubNative"
+ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
 
--- 2. Generate Tabs
-local MainTab = Window:CreateTab("Automation", "play") 
-local ConfigTab = Window:CreateTab("Configurations", "settings")
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 320, 0, 380)
+MainFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true -- Allows you to drag the UI around your screen
+MainFrame.Parent = ScreenGui
 
--- Safe environment variables
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+-- Title Bar
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+Title.Text = "  Universal Automation Hub (Native)"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 18
+Title.BorderSizePixel = 0
+Title.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 8)
+TitleCorner.Parent = Title
+
+-- Content Container
+local Container = Instance.new("ScrollingFrame")
+Container.Size = UDim2.new(1, -20, 1, -60)
+Container.Position = UDim2.new(0, 10, 0, 50)
+Container.BackgroundTransparency = 1
+Container.BorderSizePixel = 0
+Container.ScrollBarThickness = 4
+Container.CanvasSize = UDim2.new(0, 0, 0, 400)
+Container.Parent = MainFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 10)
+UIListLayout.Parent = Container
+
+-- Environment Setup
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Exact Network Services & Remotes Structure From Your Images
+-- Network Services & Remotes
 local RemoteServices = ReplicatedStorage:WaitForChild("RemoteServices", 5)
+local CollectDropRF = RemoteServices and RemoteServices:WaitForChild("DropsService", 5) and RemoteServices.DropsService:WaitForChild("RF", 5) and RemoteServices.DropsService.RF:WaitForChild("CollectDrop", 5)
+local UseWeaponRF = RemoteServices and RemoteServices:WaitForChild("CombatService", 5) and RemoteServices.CombatService:WaitForChild("RF", 5) and RemoteServices.CombatService.RF:WaitForChild("UseWeapon", 5)
 
--- Drop Collection Remote
-local CollectDropRF = RemoteServices 
-    and RemoteServices:WaitForChild("DropsService", 5) 
-    and RemoteServices.DropsService:WaitForChild("RF", 5) 
-    and RemoteServices.DropsService.RF:WaitForChild("CollectDrop", 5)
-
--- Verified Combat Weapon Remote Function
-local UseWeaponRF = RemoteServices 
-    and RemoteServices:WaitForChild("CombatService", 5)
-    and RemoteServices.CombatService:WaitForChild("RF", 5)
-    and RemoteServices.CombatService.RF:WaitForChild("UseWeapon", 5)
-
--- Core Game Folders (Targeting camera drops structure)
+-- Core Game Folders
 local Camera = workspace:FindFirstChild("Camera")
-local DropsFolder = (Camera and Camera:FindFirstChild("Drops")) 
-    or workspace:FindFirstChild("Drops") 
-    or workspace:FindFirstChild("Items") 
-    or workspace
-
+local DropsFolder = (Camera and Camera:FindFirstChild("Drops")) or workspace:FindFirstChild("Drops") or workspace:FindFirstChild("Items") or workspace
 local EnemiesFolder = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters") or workspace
 
--- Script Global Variables
+-- Execution Variables
 _G.AutoFarm = false
 _G.AutoCollect = false
 _G.FarmDistance = 5
 _G.CombatStance = "Above"
 
--- 3. Helper Functions
+-- 2. Automation Helper Functions
 local function getClosestEnemy()
     local closest = nil
     local shortestDistance = math.huge
-    
     local character = LocalPlayer.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
     local myHrp = character.HumanoidRootPart
@@ -96,9 +112,7 @@ end
 local function processDrop(drop)
     if not _G.AutoCollect or not CollectDropRF then return end
     task.spawn(function()
-        pcall(function()
-            CollectDropRF:InvokeServer(drop)
-        end)
+        pcall(function() CollectDropRF:InvokeServer(drop) end)
     end)
 end
 
@@ -111,114 +125,130 @@ pcall(function()
     end)
 end)
 
--- 4. Build Tab Elements
-MainTab:CreateSection("Combat Loops")
+-- 3. UI Element Builders
+local function createToggle(name, callback)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, 0, 0, 40)
+    button.BackgroundColor3 = Color3.fromRGB(180, 60, 60) -- Initial Red State
+    button.Text = name .. ": OFF"
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Font = Enum.Font.SourceSansBold
+    button.TextSize = 16
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = button
+    
+    local enabled = false
+    button.MouseButton1Click:Connect(function()
+        enabled = not enabled
+        if enabled then
+            button.BackgroundColor3 = Color3.fromRGB(60, 180, 60) -- Green State
+            button.Text = name .. ": ON"
+        else
+            button.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+            button.Text = name .. ": OFF"
+        end
+        callback(enabled)
+    end)
+    button.Parent = Container
+end
 
-MainTab:CreateToggle({
-   Name = "Auto Farm Enemies",
-   CurrentValue = false,
-   Flag = "Toggle_AutoFarm",
-   Callback = function(Value)
-      _G.AutoFarm = Value
-      if Value then
-          task.spawn(function()
-              while _G.AutoFarm do
-                  local target = getClosestEnemy()
-                  if target and target:FindFirstChild("HumanoidRootPart") then
-                      -- Position relative to the target
-                      local offset = Vector3.new(0, _G.FarmDistance, 0)
-                      if _G.CombatStance == "Behind" then
-                          offset = target.HumanoidRootPart.CFrame.LookVector * -_G.FarmDistance
-                      elseif _G.CombatStance == "Below" then
-                          offset = Vector3.new(0, -_G.FarmDistance, 0)
-                      end
-                      
-                      teleportToPosition(target.HumanoidRootPart.CFrame * CFrame.new(offset))
-                      
-                      -- Precise Weapon Invocation
-                      pcall(function()
-                          if UseWeaponRF then
-                              -- Calls the server directly with target array formatting
-                              UseWeaponRF:InvokeServer(1, { target }, 0.4, nil, "CS_HW_V1")[cite: 3]
-                          else
-                              -- Fallback tool click activation
-                              local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
-                              if tool then tool:Activate() end
-                          end
-                      end)
-                  end
-                  task.wait(0.1)
-              end
-          end)
-      end
-   end,
-})
+local function createDropdown(name, options, callback)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 20)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = Color3.fromRGB(180, 180, 180)
+    label.Font = Enum.Font.SourceSans
+    label.TextSize = 14
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = Container
 
-MainTab:CreateToggle({
-   Name = "Auto Collect Drops",
-   CurrentValue = false,
-   Flag = "Toggle_AutoCollect",
-   Callback = function(Value)
-      _G.AutoCollect = Value
-      if Value then
-          task.spawn(function()
-              while _G.AutoCollect do
-                  pcall(function()
-                      if DropsFolder then
-                          for _, drop in ipairs(DropsFolder:GetChildren()) do
-                              if CollectDropRF then
-                                  task.spawn(function()
-                                      CollectDropRF:InvokeServer(drop)
-                                  end)
-                              else
-                                  teleportToPosition(drop.CFrame)
-                                  task.wait(0.1)
-                              end
-                          end
-                      end
-                  end)
-                  task.wait(0.3)
-              end
-          end)
-      end
-   end,
-})
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, 0, 0, 35)
+    button.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    button.Text = options[1]
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Font = Enum.Font.SourceSans
+    button.TextSize = 15
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = button
 
-ConfigTab:CreateSection("Farming Adjustments")
+    local currentIndex = 1
+    button.MouseButton1Click:Connect(function()
+        currentIndex = currentIndex + 1
+        if currentIndex > #options then currentIndex = 1 end
+        button.Text = options[currentIndex]
+        callback(options[currentIndex])
+    end)
+    button.Parent = Container
+end
 
-ConfigTab:CreateSlider({
-   Name = "Target Attack Distance",
-   Range = {2, 15},
-   Increment = 1,
-   Suffix = " Studs",
-   CurrentValue = 5,
-   Flag = "Slider_Distance",
-   Callback = function(Value)
-      _G.FarmDistance = Value
-   end,
-})
+-- 4. Assembly & Action Loops
+createToggle("Auto Farm Enemies", function(val)
+    _G.AutoFarm = val
+    if val then
+        task.spawn(function()
+            while _G.AutoFarm do
+                local target = getClosestEnemy()
+                if target and target:FindFirstChild("HumanoidRootPart") then
+                    local offset = Vector3.new(0, _G.FarmDistance, 0)
+                    if _G.CombatStance == "Behind" then
+                        offset = target.HumanoidRootPart.CFrame.LookVector * -_G.FarmDistance
+                    elseif _G.CombatStance == "Below" then
+                        offset = Vector3.new(0, -_G.FarmDistance, 0)
+                    end
+                    
+                    teleportToPosition(target.HumanoidRootPart.CFrame * CFrame.new(offset))
+                    
+                    pcall(function()
+                        if UseWeaponRF then
+                            UseWeaponRF:InvokeServer(1, { target }, 0.4, nil, "CS_HW_V1")
+                        else
+                            local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                            if tool then tool:Activate() end
+                        end
+                    end)
+                end
+                task.wait(0.1)
+            end
+        end)
+    end
+end)
 
-ConfigTab:CreateDropdown({
-   Name = "Teleport Combat Stance",
-   Options = {"Above", "Behind", "Below"},
-   CurrentOption = {"Above"},
-   MultipleOptions = false,
-   Flag = "Dropdown_Stance",
-   Callback = function(Options)
-      _G.CombatStance = Options[1]
-   end,
-})
+createToggle("Auto Collect Drops", function(val)
+    _G.AutoCollect = val
+    if val then
+        task.spawn(function()
+            while _G.AutoCollect do
+                pcall(function()
+                    if DropsFolder then
+                        for _, drop in ipairs(DropsFolder:GetChildren()) do
+                            if CollectDropRF then
+                                task.spawn(function() CollectDropRF:InvokeServer(drop) end)
+                            else
+                                teleportToPosition(drop.CFrame)
+                                task.wait(0.1)
+                            end
+                        end
+                    end
+                end)
+                task.wait(0.3)
+            end
+        end)
+    end
+end)
 
--- 5. Safe Startup Initialization
+createDropdown("Teleport Stance (Click to Cycle)", {"Above", "Behind", "Below"}, function(selection)
+    _G.CombatStance = selection
+end)
+
+-- Startup background listeners
 pcall(function()
     if DropsFolder and DropsFolder ~= workspace then
         DropsFolder.ChildAdded:Connect(processDrop)
     end
 end)
-
-Rayfield:Notify({
-   Title = "System Loaded",
-   Content = "Direct Remote Execution framework updated successfully.",
-   Duration = 5,
-   Image = "check"
-})
