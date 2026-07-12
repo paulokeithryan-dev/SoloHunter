@@ -1,27 +1,35 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- // STATE FLAGS & CONFIG (Mutable) // --
+-- // EXPLOIT REMOTES (Sourced from your hooks) // --
+local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
+local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
+
+-- // STATE FLAGS & CONFIG // --
 local systemEnabled = false
-local autoEquipEnabled = true -- Auto-equip defaults to ON
-local HOVER_HEIGHT = 4        -- Can now be changed via UI
+local autoEquipEnabled = true 
+local autoCollectEnabled = true  -- New
+local autoPotionEnabled = true   -- New
+
+local HOVER_HEIGHT = 4        
 local MAX_DETECTION_DIST = 300  
 local M1_SPEED = 0.1            
 local SKILL_INTERVAL = 1.5      
 
 -- // USER INTERFACE CREATION // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoCombatUI_v2"
+screenGui.Name = "AutoCombatUI_v3"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- Expanded Main Container Frame to hold new settings
+-- Expanded Main Container Frame to hold the two new toggles (Height increased to 205)
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 190, 0, 125)
+mainFrame.Size = UDim2.new(0, 190, 0, 205)
 mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
@@ -33,20 +41,27 @@ local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(0, 8)
 uiCorner.Parent = mainFrame
 
--- 1. Main System Toggle Button
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(1, -10, 0, 35)
-toggleButton.Position = UDim2.new(0, 5, 0, 5)
-toggleButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-toggleButton.Text = "SYSTEM: OFF"
-toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleButton.Font = Enum.Font.SourceSansBold
-toggleButton.TextSize = 14
-toggleButton.Parent = mainFrame
+-- Helper function to rapidly generate standardized styling for buttons
+local function createButton(name, text, pos, color)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Size = UDim2.new(1, -10, 0, 35)
+    btn.Position = pos
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 14
+    btn.Parent = mainFrame
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+    return btn
+end
 
-local btnCorner1 = Instance.new("UICorner")
-btnCorner1.CornerRadius = UDim.new(0, 6)
-btnCorner1.Parent = toggleButton
+-- 1. Main System Toggle Button
+local toggleButton = createButton("ToggleBtn", "SYSTEM: OFF", UDim2.new(0, 5, 0, 5), Color3.fromRGB(200, 60, 60))
 
 -- 2. Height Adjustment Elements
 local minusBtn = Instance.new("TextButton")
@@ -88,19 +103,13 @@ btnCorner3.CornerRadius = UDim.new(0, 6)
 btnCorner3.Parent = plusBtn
 
 -- 3. Auto-Equip Toggle Button
-local equipButton = Instance.new("TextButton")
-equipButton.Size = UDim2.new(1, -10, 0, 35)
-equipButton.Position = UDim2.new(0, 5, 0, 85)
-equipButton.BackgroundColor3 = Color3.fromRGB(60, 150, 200)
-equipButton.Text = "Auto-Equip: ON"
-equipButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-equipButton.Font = Enum.Font.SourceSansBold
-equipButton.TextSize = 14
-equipButton.Parent = mainFrame
+local equipButton = createButton("EquipBtn", "Auto-Equip: ON", UDim2.new(0, 5, 0, 85), Color3.fromRGB(60, 150, 200))
 
-local btnCorner4 = Instance.new("UICorner")
-btnCorner4.CornerRadius = UDim.new(0, 6)
-btnCorner4.Parent = equipButton
+-- 4. Auto-Collect Drops Toggle Button
+local collectButton = createButton("CollectBtn", "Auto-Collect: ON", UDim2.new(0, 5, 0, 125), Color3.fromRGB(140, 60, 200))
+
+-- 5. Auto-Potion Toggle Button
+local potionButton = createButton("PotionBtn", "Auto-Potion: ON", UDim2.new(0, 5, 0, 165), Color3.fromRGB(210, 130, 40))
 
 -- // UI LOGIC CONNECTORS // --
 toggleButton.MouseButton1Click:Connect(function()
@@ -125,8 +134,30 @@ equipButton.MouseButton1Click:Connect(function()
     end
 end)
 
+collectButton.MouseButton1Click:Connect(function()
+    autoCollectEnabled = not autoCollectEnabled
+    if autoCollectEnabled then
+        collectButton.Text = "Auto-Collect: ON"
+        collectButton.BackgroundColor3 = Color3.fromRGB(140, 60, 200)
+    else
+        collectButton.Text = "Auto-Collect: OFF"
+        collectButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    end
+end)
+
+potionButton.MouseButton1Click:Connect(function()
+    autoPotionEnabled = not autoPotionEnabled
+    if autoPotionEnabled then
+        potionButton.Text = "Auto-Potion: ON"
+        potionButton.BackgroundColor3 = Color3.fromRGB(210, 130, 40)
+    else
+        potionButton.Text = "Auto-Potion: OFF"
+        potionButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    end
+end)
+
 minusBtn.MouseButton1Click:Connect(function()
-    HOVER_HEIGHT = math.clamp(HOVER_HEIGHT - 1, 0, 30) -- Keeps height between 0 and 30
+    HOVER_HEIGHT = math.clamp(HOVER_HEIGHT - 1, 0, 30)
     heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
 end)
 
@@ -189,7 +220,6 @@ RunService.Heartbeat:Connect(function()
         local enemyRoot = targetEnemy.HumanoidRootPart
         local _, boxSize = targetEnemy:GetBoundingBox()
         
-        -- Dynamically uses the UI-adjusted HOVER_HEIGHT variable
         local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
         local targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
         
@@ -198,14 +228,67 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
+-- // SMART AUTO-POTION LOOP // --
+task.spawn(function()
+    while true do
+        task.wait(0.3) -- Fast scanning check
+        if systemEnabled and autoPotionEnabled then
+            local character = player.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            
+            if humanoid and humanoid.Health > 0 then
+                -- Calculate percentage accurately
+                local hpPercent = humanoid.Health / humanoid.MaxHealth
+                if hpPercent <= 0.5 then
+                    -- Safely invoke the remote without breaking the script if it errors
+                    pcall(function()
+                        healRemote:InvokeServer()
+                    end)
+                    -- Potion cooldown to prevent the server from penalizing or kicking you for spamming
+                    task.wait(1.5) 
+                end
+            end
+        end
+    end
+end)
+
+-- // SMART AUTO-COLLECT DROPS LOOP // --
+task.spawn(function()
+    while true do
+        task.wait(1) -- Scans for items every second to ensure high game performance
+        if systemEnabled and autoCollectEnabled then
+            -- Check for a dedicated folder first, then fall back to standard Workspace scanning
+            local targetFolder = workspace:FindFirstChild("Drops")
+            
+            if targetFolder then
+                for _, dropItem in ipairs(targetFolder:GetChildren()) do
+                    pcall(function()
+                        dropRemote:InvokeServer(dropItem)
+                    end)
+                    task.wait(0.02) -- Tiny throttle to prevent network packet drops
+                end
+            else
+                -- If drops are just scattered loose in Workspace, look for parts with "drop" in the name
+                for _, obj in ipairs(workspace:GetChildren()) do
+                    if obj.Name:lower():find("drop") and (obj:IsA("BasePart") or obj:IsA("Model")) then
+                        pcall(function()
+                            dropRemote:InvokeServer(obj)
+                        end)
+                        task.wait(0.02)
+                    end
+                end
+            end
+        end
+    end
+end)
+
 -- // AUTO WEAPON EQUIP LOOP // --
 task.spawn(function()
     while true do
-        task.wait(0.5) -- Scans weapon status twice a second
+        task.wait(0.5)
         if systemEnabled and autoEquipEnabled then
             local character = player.Character
             if character and character:FindFirstChildOfClass("Humanoid") and character.Humanoid.Health > 0 then
-                -- Safely checks if a tool is NOT currently held before hitting '1'
                 local holdingTool = character:FindFirstChildOfClass("Tool")
                 if not holdingTool then
                     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
