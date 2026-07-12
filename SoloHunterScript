@@ -11,14 +11,12 @@ local Window = Rayfield:CreateWindow({
 })
 
 -- =============================================================================
--- STATED RUNTIME VARIABLES
+-- RUNTIME GLOBAL VARIABLES
 -- =============================================================================
-local _G = {
-    AutoFarm = false,
-    AutoSkills = false,
-    AutoCollect = false,
-    AutoDungeon = false -- Linked to Dungeon Toggle
-}
+_G.AutoFarm = false
+_G.AutoSkills = false
+_G.AutoCollect = false
+_G.AutoDungeon = false
 
 -- Configurable Settings (Linked to UI Controls)
 local M1_SPEED = 0.1         -- Controlled by Slider (seconds)
@@ -28,9 +26,9 @@ local HOVER_HEIGHT = 4       -- Distance from target
 local DROPS_COLLECTED = 0    -- Dashboard Counter
 local DUNGEON_RETRY_DELAY = 5 -- Controlled by Slider (seconds)
 
--- Workspace Collections
-local EnemiesFolder = workspace:DestroyWithTagOrPath("Enemies") -- Swap with your game's enemy path
-local DropsFolder = workspace:DestroyWithTagOrPath("Drops")     -- Swap with your game's drops path
+-- Safe Workspace Paths (Defaults to workspace if folders aren't found, preventing crashes)
+local EnemiesFolder = workspace:FindFirstChild("Enemies") or workspace
+local DropsFolder = workspace:FindFirstChild("Drops") or workspace
 
 local Player = game.Players.LocalPlayer
 local RunService = game:GetService("RunService")
@@ -146,17 +144,22 @@ local function getClosestEnemy()
     if not Player.Character or not Player.Character:FindFirstChild("HumanoidRootPart") then return nil end
     local myPos = Player.Character.HumanoidRootPart.Position
 
-    for _, enemy in ipairs(EnemiesFolder:GetChildren()) do
-        local hp = enemy:FindFirstChildOfClass("Humanoid")
-        local root = enemy:FindFirstChild("HumanoidRootPart")
-        if root and hp and hp.Health > 0 then
-            local dist = (myPos - root.Position).Magnitude
-            if dist < shortestDistance then
-                shortestDistance = dist
-                closest = enemy
+    -- Safety check to ensure we can iterate over the folder
+    pcall(function()
+        for _, enemy in ipairs(EnemiesFolder:GetChildren()) do
+            if enemy:IsA("Model") and enemy ~= Player.Character then
+                local hp = enemy:FindFirstChildOfClass("Humanoid")
+                local root = enemy:FindFirstChild("HumanoidRootPart")
+                if root and hp and hp.Health > 0 then
+                    local dist = (myPos - root.Position).Magnitude
+                    if dist < shortestDistance then
+                        shortestDistance = dist
+                        closest = enemy
+                    end
+                end
             end
         end
-    end
+    end)
     return closest
 end
 
@@ -192,10 +195,8 @@ RunService.Heartbeat:Connect(function()
                 local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
                 targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
             elseif TELEPORT_STANCE == "Behind" then
-                -- Positions character 4 studs directly behind the enemy face direction
                 targetPosition = enemyRoot.CFrame.Position - (enemyRoot.CFrame.LookVector * 4)
             elseif TELEPORT_STANCE == "Below" then
-                -- Clips character right below the enemy hitbox floor
                 local targetY = enemyRoot.Position.Y - (boxSize.Y / 2) - HOVER_HEIGHT
                 targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
             end
@@ -215,10 +216,10 @@ task.spawn(function()
         if _G.AutoFarm then
             local enemy = getClosestEnemy()
             if enemy and AttackRemote then
-                AttackRemote:FireServer(enemy) -- Pass the enemy target data inside the remote payload
+                AttackRemote:FireServer(enemy)
             end
         end
-        task.wait(M1_SPEED) -- Dynamic yielding tied directly to your anti-cheat slider
+        task.wait(M1_SPEED)
     end
 end)
 
@@ -232,7 +233,7 @@ task.spawn(function()
                 SkillRemote:FireServer("Skill2", enemy)
             end
         end
-        task.wait(SKILL_INTERVAL) -- Dynamic yielding tied directly to your interval slider
+        task.wait(SKILL_INTERVAL)
     end
 end)
 
@@ -243,17 +244,15 @@ local function processDrop(drop)
         while drop.Parent and _G.AutoCollect do
             if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
                 local myRoot = Player.Character.HumanoidRootPart
-                -- Instantly fire touch interest if engine uses standard parts, or move to character
-                firetouchinterest(myRoot, drop, 0)
-                firetouchinterest(myRoot, drop, 1)
-                
-                -- Alternate physics backup: Pull drop directly to character frame
+                if firetouchinterest then
+                    firetouchinterest(myRoot, drop, 0)
+                    firetouchinterest(myRoot, drop, 1)
+                end
                 drop.CFrame = myRoot.CFrame
             end
             task.wait(0.1)
         end
         
-        -- If the drop is gone (collected successfully), update Dashboard tally
         if not drop.Parent then
             DROPS_COLLECTED = DROPS_COLLECTED + 1
             DropsLabel:Set("Drops Collected: " .. tostring(DROPS_COLLECTED))
@@ -266,12 +265,9 @@ task.spawn(function()
     while true do
         if _G.AutoDungeon then
             pcall(function()
-                -- Primary: Invoke the RemoteFunction intercepted by Cobalt
                 if DungeonPortalRF then
                     DungeonPortalRF:InvokeServer("retry")
                 end
-                
-                -- Secondary Backup: Fallback to the ReplicaService layer if direct infrastructure changes
                 if ReplicaSignal then
                     ReplicaSignal:FireServer("retry")
                 end
@@ -281,13 +277,15 @@ task.spawn(function()
     end
 end)
 
--- Initialize listeners for items already on screen + upcoming drops
-for _, drop in ipairs(DropsFolder:GetChildren()) do processDrop(drop) end
-DropsFolder.DescendantAdded:Connect(processDrop)
+-- Initialize listeners cleanly if folders match actual paths
+pcall(function()
+    for _, drop in ipairs(DropsFolder:GetChildren()) do processDrop(drop) end
+    DropsFolder.DescendantAdded:Connect(processDrop)
+end)
 
 Rayfield:Notify({
     Title = "Suite Initialized",
-    Content = "All parallel automation channels operational.",
+    Content = "All parallel automation tabs and controls loaded successfully.",
     Duration = 5,
     Image = 4483362458,
 })
