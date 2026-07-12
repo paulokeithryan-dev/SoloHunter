@@ -1,28 +1,22 @@
--- Safe UI Library Loader (Prevents Line 1 Nil Crash)
+-- Diagnostic UI Bootstrapper
 local Rayfield = nil
-local endpoints = {
-    "https://sirius.menu/rayfield",
-    "https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua",
-    "https://raw.githubusercontent.com/shlexware/Rayfield/main/source" -- Legacy high-compatibility endpoint
-}
+local success, result = pcall(function()
+    return loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
+end)
 
-for _, url in ipairs(endpoints) do
-    local success, content = pcall(function()
-        return game:HttpGet(url)
+if success and result then
+    Rayfield = result
+else
+    -- Fallback to secondary mirror if primary is blocked by executor network rules
+    local legacySuccess, legacyResult = pcall(function()
+        return loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
     end)
-    
-    if success and content and #content > 0 and not content:find("404") then
-        local func, err = loadstring(content)
-        if func then
-            Rayfield = func()
-            break
-        end
-    end
+    if legacySuccess then Rayfield = legacyResult end
 end
 
 if not Rayfield then
-    -- Ultimate fallback: If your executor blocks all Rayfield domains, notify the console cleanly
-    return print("[ERROR] Your executor is completely blocking Rayfield connection requests. Please check your executor's network permissions.")
+    error("[Automation Hub] Critical Error: Your executor is blocking external network requests to the UI library.")
+    return
 end
 
 -- 1. Create the Main Window Frame Safely
@@ -32,13 +26,12 @@ local Window = Rayfield:CreateWindow({
    LoadingSubtitle = "by Assistant",
    ConfigurationSaving = {
       Enabled = false,
-      FolderName = nil,
-      FileName = "AutomationConfig"
+      FolderName = "AutomationHub"
    },
    Discord = {
       Enabled = false,
-      Invite = "noinvitelink",
-      RememberJoins = true
+      Invite = "",
+      RememberJoins = false
    },
    KeySystem = false
 })
@@ -53,29 +46,23 @@ local LocalPlayer = Players.LocalPlayer
 local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Exact Network Services & Remotes Structure From Your Images
+-- Exact Network Services & Remotes Structure
 local RemoteServices = ReplicatedStorage:WaitForChild("RemoteServices", 5)
 
--- Drop Collection Remote
 local CollectDropRF = RemoteServices 
     and RemoteServices:WaitForChild("DropsService", 5) 
     and RemoteServices.DropsService:WaitForChild("RF", 5) 
     and RemoteServices.DropsService.RF:WaitForChild("CollectDrop", 5)
 
--- Verified Combat Weapon Remote Function
 local UseWeaponRF = RemoteServices 
     and RemoteServices:WaitForChild("CombatService", 5)
     and RemoteServices.CombatService:WaitForChild("RF", 5)
     and RemoteServices.CombatService.RF:WaitForChild("UseWeapon", 5)
 
--- Core Game Folders (Targeting camera drops structure)
+-- Strict Folder Mapping (Prevents workspace flooding)
 local Camera = workspace:FindFirstChild("Camera")
-local DropsFolder = (Camera and Camera:FindFirstChild("Drops")) 
-    or workspace:FindFirstChild("Drops") 
-    or workspace:FindFirstChild("Items") 
-    or workspace
-
-local EnemiesFolder = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters") or workspace
+local DropsFolder = (Camera and Camera:FindFirstChild("Drops")) or workspace:FindFirstChild("Drops")
+local EnemiesFolder = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters")
 
 -- Script Global Variables
 _G.AutoFarm = false
@@ -85,6 +72,7 @@ _G.CombatStance = "Above"
 
 -- 3. Helper Functions
 local function getClosestEnemy()
+    if not EnemiesFolder then return nil end
     local closest = nil
     local shortestDistance = math.huge
     
@@ -149,23 +137,24 @@ MainTab:CreateToggle({
               while _G.AutoFarm do
                   local target = getClosestEnemy()
                   if target and target:FindFirstChild("HumanoidRootPart") then
-                      -- Position relative to the target
-                      local offset = Vector3.new(0, _G.FarmDistance, 0)
+                      
+                      -- Corrected Pure Local CFrame Transformations
+                      local targetCFrame = target.HumanoidRootPart.CFrame
+                      local finalCFrame = targetCFrame * CFrame.new(0, _G.FarmDistance, 0) -- Default Above
+                      
                       if _G.CombatStance == "Behind" then
-                          offset = target.HumanoidRootPart.CFrame.LookVector * -_G.FarmDistance
+                          finalCFrame = targetCFrame * CFrame.new(0, 0, _G.FarmDistance)
                       elseif _G.CombatStance == "Below" then
-                          offset = Vector3.new(0, -_G.FarmDistance, 0)
+                          finalCFrame = targetCFrame * CFrame.new(0, -_G.FarmDistance, 0)
                       end
                       
-                      teleportToPosition(target.HumanoidRootPart.CFrame * CFrame.new(offset))
+                      teleportToPosition(finalCFrame)
                       
-                      -- Precise Weapon Invocation
+                      -- Remote Weapon Invocation
                       pcall(function()
                           if UseWeaponRF then
-                              -- Calls the server directly with target array formatting
-                              UseWeaponRF:InvokeServer(1, { target }, 0.4, nil, "CS_HW_V1")[cite: 3]
+                              UseWeaponRF:InvokeServer(1, { target }, 0.4, nil, "CS_HW_V1")
                           else
-                              -- Fallback tool click activation
                               local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
                               if tool then tool:Activate() end
                           end
@@ -199,9 +188,11 @@ MainTab:CreateToggle({
                                   task.wait(0.1)
                               end
                           end
+                      else
+                          warn("[Warning] Drops folder cannot be found in workspace currently.")
                       end
                   end)
-                  task.wait(0.3)
+                  task.wait(0.4)
               end
           end)
       end
@@ -235,14 +226,14 @@ ConfigTab:CreateDropdown({
 
 -- 5. Safe Startup Initialization
 pcall(function()
-    if DropsFolder and DropsFolder ~= workspace then
+    if DropsFolder then
         DropsFolder.ChildAdded:Connect(processDrop)
     end
 end)
 
 Rayfield:Notify({
    Title = "System Loaded",
-   Content = "Direct Remote Execution framework updated successfully.",
+   Content = "Execution engine online with verified stability updates.",
    Duration = 5,
    Image = "check"
 })
