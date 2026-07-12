@@ -1,4 +1,4 @@
--- Modern Fluent Bootstrapper
+-- 1. Initialize Fluent UI Library
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 local Window = Fluent:CreateWindow({
@@ -18,192 +18,259 @@ local Tabs = {
 
 -- Safe environment variables
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local VirtualUser = game:GetService("VirtualUser")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Strict Folder Mapping
-local Camera = workspace:FindFirstChild("Camera")
-local DropsFolder = (Camera and Camera:FindFirstChild("Drops")) or workspace:FindFirstChild("Drops")
-local EnemiesFolder = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters")
-
--- Global Script Configuration
+local player = Players.LocalPlayer
 local Options = Fluent.Options
-_G.AutoFarm = false
-_G.AutoCollect = false
-_G.FarmDistance = 5
-_G.CombatStance = "Above"
 
--- Dynamic Safe Remote Resolvers (Fixes the global scope crash)
-local function getCollectDropRemote()
-    local rs = ReplicatedStorage:FindFirstChild("RemoteServices")
-    local ds = rs and rs:FindFirstChild("DropsService")
-    local rfFolder = ds and ds:FindFirstChild("RF")
-    return rfFolder and rfFolder:FindFirstChild("CollectDrop")
+-- // EXPLOIT REMOTES (From your traditional file) // --
+local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
+local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
+local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
+local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
+local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
+
+-- // CONFIG STATE STRUCURE // --
+_G.SystemEnabled = false
+_G.AutoEquipEnabled = true 
+_G.AutoCollectEnabled = true  
+_G.AutoPotionEnabled = true   
+_G.AutoDungeonEnabled = true  
+
+local HOVER_HEIGHT = 4        
+local MAX_DETECTION_DIST = 300  
+local M1_SPEED = 0.1            
+local SKILL_INTERVAL = 1.5      
+local targetEnemy = nil
+
+-- // TRADITIONAL TARGETING FUNCTIONS // --
+local function isEnemy(model)
+    if model:IsA("Model") and model ~= player.Character then
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        local root = model:FindFirstChild("HumanoidRootPart")
+        if humanoid and root and humanoid.Health > 0 then
+            return true
+        end
+    end
+    return false
 end
 
-local function getUseWeaponRemote()
-    local rs = ReplicatedStorage:FindFirstChild("RemoteServices")
-    local cs = rs and rs:FindFirstChild("CombatService")
-    local rfFolder = cs and cs:FindFirstChild("RF")
-    return rfFolder and rfFolder:FindFirstChild("UseWeapon")
-end
-
--- Targeting Math Helper
 local function getClosestEnemy()
-    if not EnemiesFolder then return nil end
-    local closest = nil
-    local shortestDistance = math.huge
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
     
-    local character = LocalPlayer.Character
-    local myHrp = character and character:FindFirstChild("HumanoidRootPart")
-    if not myHrp then return nil end
+    local playerRoot = character.HumanoidRootPart
+    local closestEnemy = nil
+    local shortestDistance = MAX_DETECTION_DIST
 
-    pcall(function()
-        for _, enemy in ipairs(EnemiesFolder:GetChildren()) do
-            if enemy:IsA("Model") and enemy:FindFirstChild("HumanoidRootPart") and enemy:FindFirstChild("Humanoid") then
-                if enemy.Humanoid.Health > 0 then
-                    local distance = (enemy.HumanoidRootPart.Position - myHrp.Position).Magnitude
-                    if distance < shortestDistance then
-                        shortestDistance = distance
-                        closest = enemy
-                    end
-                end
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if isEnemy(obj) then
+            local enemyRoot = obj.HumanoidRootPart
+            local distance = (playerRoot.Position - enemyRoot.Position).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                closestEnemy = obj
             end
         end
-    end)
-    return closest
+    end
+    return closestEnemy
 end
 
-local function teleportToPosition(pos)
-    pcall(function()
-        local character = LocalPlayer.Character
-        if character and character:FindFirstChild("HumanoidRootPart") then
-            character.HumanoidRootPart.CFrame = pos
-        end
-    end)
-end
+-- // HEARTBEAT POSITIONING & AIMING LOOP // --
+RunService.Heartbeat:Connect(function()
+    if not _G.SystemEnabled then 
+        targetEnemy = nil
+        return 
+    end
 
--- Anti-AFK Handler
-pcall(function()
-    LocalPlayer.Idled:Connect(function()
-        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-        task.wait(1)
-        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-    end)
-end)
-
--- Automation Tab Configuration
-Tabs.Main:AddSection("Combat Loops")
-
-local ToggleFarm = Tabs.Main:AddToggle("Toggle_AutoFarm", {Title = "Auto Farm Enemies", Default = false })
-ToggleFarm:OnChanged(function()
-    _G.AutoFarm = Options.Toggle_AutoFarm.Value
-    if _G.AutoFarm then
-        task.spawn(function()
-            while _G.AutoFarm do
-                local target = getClosestEnemy()
-                if target and target:FindFirstChild("HumanoidRootPart") then
-                    
-                    local targetCFrame = target.HumanoidRootPart.CFrame
-                    local finalCFrame = targetCFrame * CFrame.new(0, _G.FarmDistance, 0)
-                    
-                    if _G.CombatStance == "Behind" then
-                        finalCFrame = targetCFrame * CFrame.new(0, 0, _G.FarmDistance)
-                    elseif _G.CombatStance == "Below" then
-                        finalCFrame = targetCFrame * CFrame.new(0, -_G.FarmDistance, 0)
-                    end
-                    
-                    teleportToPosition(finalCFrame)
-                    
-                    pcall(function()
-                        local weaponRF = getUseWeaponRemote()
-                        if weaponRF then
-                            -- Packed safely without mid-tuple raw nils to prevent payload dropping
-                            weaponRF:InvokeServer(1, { target }, 0.4, "", "CS_HW_V1")[cite: 3]
-                        else
-                            local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
-                            if tool then tool:Activate() end
-                        end
-                    end)
-                end
-                task.wait(0.1)
-            end
-        end)
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    
+    if not root or (humanoid and humanoid.Health <= 0) then return end
+    
+    targetEnemy = getClosestEnemy()
+    
+    if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") then
+        local enemyRoot = targetEnemy.HumanoidRootPart
+        local _, boxSize = targetEnemy:GetBoundingBox()
+        
+        local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
+        local targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
+        
+        root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
+        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
     end
 end)
 
-local ToggleCollect = Tabs.Main:AddToggle("Toggle_AutoCollect", {Title = "Auto Collect Drops", Default = false })
-ToggleCollect:OnChanged(function()
-    _G.AutoCollect = Options.Toggle_AutoCollect.Value
-    if _G.AutoCollect then
+-- // REAL-TIME DROP SCANNER FUNCTIONS // --
+local function processDrop(obj)
+    if not _G.SystemEnabled or not _G.AutoCollectEnabled or not obj then return end
+    
+    local nameLower = obj.Name:lower()
+    local parentNameLower = (obj.Parent and obj.Parent.Name:lower()) or ""
+    
+    local isDrop = nameLower:find("drop") 
+        or nameLower:find("loot") 
+        or nameLower:find("item")
+        or parentNameLower:find("drop") 
+        or parentNameLower:find("loot")
+        or obj:IsA("ProximityPrompt")
+        or obj:IsA("TouchTransmitter")
+        
+    if isDrop then
         task.spawn(function()
-            while _G.AutoCollect do
-                pcall(function()
-                    if DropsFolder then
-                        local collectRF = getCollectDropRemote()
-                        for _, drop in ipairs(DropsFolder:GetChildren()) do
-                            if collectRF then
-                                task.spawn(function()
-                                    collectRF:InvokeServer(drop)
-                                end)
-                            else
-                                teleportToPosition(drop.CFrame)
-                                task.wait(0.1)
-                            end
-                        end
-                    end
-                 pcall(function()
+            pcall(function() dropRemote:InvokeServer(obj) end)
+            if obj.Parent and obj.Parent:IsA("Model") then
+                pcall(function() dropRemote:InvokeServer(obj.Parent) end)
+            end
+        end)
+    end
+end
+
+workspace.DescendantAdded:Connect(processDrop)
+
+-- // BACKGROUND THREADS // --
+
+-- Traditional Auto-Potion Loop
+task.spawn(function()
+    while true do
+        task.wait(0.3)
+        if _G.SystemEnabled and _G.AutoPotionEnabled then
+            local character = player.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            
+            if humanoid and humanoid.Health > 0 then
+                local hpPercent = humanoid.Health / humanoid.MaxHealth
+                if hpPercent <= 0.5 then
+                    pcall(function() healRemote:InvokeServer() end)
+                    task.wait(1.5) 
+                end
+            end
+        end
+    end
+end)
+
+-- Workspace Scan Collection Loop
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if _G.SystemEnabled and _G.AutoCollectEnabled then
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                processDrop(obj)
+            end
+        end
+    end
+end)
+
+-- Auto Weapon Equip Loop
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if _G.SystemEnabled and _G.AutoEquipEnabled then
+            local character = player.Character
+            if character and character:FindFirstChildOfClass("Humanoid") and character.Humanoid.Health > 0 then
+                local holdingTool = character:FindFirstChildOfClass("Tool")
+                if not holdingTool then
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
+                    task.wait(0.02)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+                end
+            end
+        end
+    end
+end)
+
+-- Double-Engine Hybrid Attack Loop
+task.spawn(function()
+    while true do
+        task.wait(M1_SPEED)
+        if _G.SystemEnabled and targetEnemy then
+            task.spawn(function()
+                pcall(function() 
+                    useWeaponRemote:InvokeServer(1, { targetEnemy }, 0.4, "", "CS_HW_V1")[cite: 3]
                 end)
-               end)
-               task.wait(0.4)
-            end
-        end)
+            end)
+            
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            task.wait(0.01)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        end
     end
 end)
 
--- Configurations Tab Configuration
-Tabs.Settings:AddSection("Farming Adjustments")
+-- Auto-Dungeon Loop
+task.spawn(function()
+    while true do
+        task.wait(1.5)
+        if _G.SystemEnabled and _G.AutoDungeonEnabled then
+            task.spawn(pcall, function() startDungeonRemote:InvokeServer() end)
+            task.spawn(pcall, function() enterGateRemote:InvokeServer() end)
+        end
+    end
+end)
 
-Tabs.Settings:AddSlider("Slider_Distance", {
-    Title = "Target Attack Distance",
-    Description = "Distance maintained from target",
-    Default = 5,
-    Min = 2,
-    Max = 15,
+-- Auto Skill Cast Loop
+local skills = {Enum.KeyCode.F, Enum.KeyCode.R, Enum.KeyCode.C}
+task.spawn(function()
+    while true do
+        for _, key in ipairs(skills) do
+            if _G.SystemEnabled and targetEnemy then
+                VirtualInputManager:SendKeyEvent(true, key, false, game)
+                task.wait(0.05)
+                VirtualInputManager:SendKeyEvent(false, key, false, game)
+                task.wait(SKILL_INTERVAL)
+            else
+                task.wait(0.5)
+            end
+        end
+    end
+end)
+
+-- // BUILD FLUENT UI INTERFACE // --
+
+Tabs.Main:AddSection("Master Toggles")
+
+Tabs.Main:AddToggle("SystemToggle", {Title = "Master System Switch", Default = false}):OnChanged(function()
+    _G.SystemEnabled = Options.SystemToggle.Value
+end)
+
+Tabs.Main:AddToggle("EquipToggle", {Title = "Auto-Equip Weapon", Default = true}):OnChanged(function()
+    _G.AutoEquipEnabled = Options.EquipToggle.Value
+end)
+
+Tabs.Main:AddToggle("CollectToggle", {Title = "Auto-Collect Drops", Default = true}):OnChanged(function()
+    _G.AutoCollectEnabled = Options.CollectToggle.Value
+end)
+
+Tabs.Main:AddToggle("PotionToggle", {Title = "Auto-Use Potions (<=50% HP)", Default = true}):OnChanged(function()
+    _G.AutoPotionEnabled = Options.PotionToggle.Value
+end)
+
+Tabs.Main:AddToggle("DungeonToggle", {Title = "Auto-Progress Dungeons & Gates", Default = true}):OnChanged(function()
+    _G.AutoDungeonEnabled = Options.DungeonToggle.Value
+end)
+
+Tabs.Settings:AddSection("Farming Height Tuning")
+
+Tabs.Settings:AddSlider("HeightSlider", {
+    Title = "Hover Height Adjuster",
+    Description = "Vertical spacing above target",
+    Default = 4,
+    Min = 0,
+    Max = 30,
     Rounding = 0,
     Callback = function(Value)
-        _G.FarmDistance = Value
+        HOVER_HEIGHT = Value
     end
 })
-
-Tabs.Settings:AddDropdown("Dropdown_Stance", {
-    Title = "Teleport Combat Stance",
-    Values = {"Above", "Behind", "Below"},
-    CurrentOption = "Above",
-    Callback = function(Value)
-        _G.CombatStance = Value
-    end
-})
-
--- Dynamic Real-time Child Collector Sniper
-pcall(function()
-    if DropsFolder then
-        DropsFolder.ChildAdded:Connect(function(drop)
-            if _G.AutoCollect then
-                local collectRF = getCollectDropRemote()
-                if collectRF then
-                    pcall(function() collectRF:InvokeServer(drop) end)
-                end
-            end
-        end)
-    end
-end)
 
 Tabs.Main:Select()
 
 Fluent:Notify({
-    Title = "System Loaded",
-    Content = "Isolated code framework executing cleanly.",
+    Title = "Framework Initialized",
+    Content = "Traditional logic engines loaded smoothly inside Fluent Interface.",
     Duration = 5
 })
