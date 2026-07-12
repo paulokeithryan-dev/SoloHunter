@@ -6,12 +6,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- // VERIFIED REMOTES // --
+-- // VERIFIED REMOTES (From Cobalt Logs) // --
 local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
+
+local getActDungeonPlayers = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("GetActDungeonPlayers")
+local startDungeonFromGate = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("StartDungeonFromGate")
 
 -- // CONFIG & STATE // --
 local systemEnabled = false
@@ -27,7 +30,7 @@ local SKILL_INTERVAL = 1.5
 
 local processedDrops = {}
 
--- // UNIFIED USER INTERFACE // --
+-- // AUTOMATIC LAYOUT INTERFACE DESIGN // --
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "SleekCombatHub_v11"
 screenGui.ResetOnSpawn = false
@@ -35,7 +38,7 @@ screenGui.Parent = playerGui
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 420, 0, 250)
-mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
+mainFrame.Position = UDim2.new(0.5, -210, 0.5, -125) -- Center of screen layout
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
@@ -46,9 +49,9 @@ local mainCorner = Instance.new("UICorner")
 mainCorner.CornerRadius = UDim.new(0, 8)
 mainCorner.Parent = mainFrame
 
+-- Left Sidebar
 local sidebarFrame = Instance.new("Frame")
-sidebarFrame.Size = UDim2.new(0, 180, 1, 0)
-sidebarFrame.Position = UDim2.new(0, 0, 0, 0)
+sidebarFrame.Size = UDim2.new(0, 170, 1, 0)
 sidebarFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
 sidebarFrame.BorderSizePixel = 0
 sidebarFrame.Parent = mainFrame
@@ -57,19 +60,36 @@ local sidebarCorner = Instance.new("UICorner")
 sidebarCorner.CornerRadius = UDim.new(0, 8)
 sidebarCorner.Parent = sidebarFrame
 
-local splitCover = Instance.new("Frame")
-splitCover.Size = UDim2.new(0, 10, 1, 0)
-splitCover.Position = UDim2.new(1, -10, 0, 0)
-splitCover.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
-splitCover.BorderSizePixel = 0
-splitCover.Parent = sidebarFrame
+-- Sidebar Layout Engine (Prevents clipping/omitting elements)
+local sidebarList = Instance.new("UIListLayout")
+sidebarList.Padding = UDim.new(0, 6)
+sidebarList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+sidebarList.VerticalAlignment = Enum.VerticalAlignment.Top
+sidebarList.Parent = sidebarFrame
 
+local sidebarPadding = Instance.new("UIPadding")
+sidebarPadding.PaddingTop = UDim.new(0, 10)
+sidebarPadding.PaddingBottom = UDim.new(0, 10)
+sidebarPadding.Parent = sidebarFrame
+
+-- Right Content Panel
 local contentFrame = Instance.new("Frame")
-contentFrame.Size = UDim2.new(0, 240, 1, 0)
-contentFrame.Position = UDim2.new(0, 180, 0, 0)
+contentFrame.Size = UDim2.new(0, 250, 1, 0)
+contentFrame.Position = UDim2.new(0, 170, 0, 0)
 contentFrame.BackgroundTransparency = 1
 contentFrame.Parent = mainFrame
 
+local contentList = Instance.new("UIListLayout")
+contentList.Padding = UDim.new(0, 6)
+contentList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+contentList.VerticalAlignment = Enum.VerticalAlignment.Top
+contentList.Parent = contentFrame
+
+local contentPadding = Instance.new("UIPadding")
+contentPadding.PaddingTop = UDim.new(0, 10)
+contentPadding.Parent = contentFrame
+
+-- Floating Icon Setup
 local floatingIcon = Instance.new("TextButton")
 floatingIcon.Name = "FloatingIcon"
 floatingIcon.Size = UDim2.new(0, 60, 0, 35)
@@ -91,11 +111,11 @@ iconStroke.Color = Color3.fromRGB(140, 60, 200)
 iconStroke.Thickness = 1.5
 iconStroke.Parent = floatingIcon
 
-local function createSidebarButton(name, text, yPos, height, color)
+-- // ELEMENT GENERATION FACTORIES // --
+local function createSidebarButton(name, text, color)
     local btn = Instance.new("TextButton")
     btn.Name = name
-    btn.Size = UDim2.new(1, -16, 0, height)
-    btn.Position = UDim2.new(0, 8, 0, yPos)
+    btn.Size = UDim2.new(1, -16, 0, 28)
     btn.BackgroundColor3 = color
     btn.Text = text
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -109,81 +129,93 @@ local function createSidebarButton(name, text, yPos, height, color)
     return btn
 end
 
-local toggleButton = createSidebarButton("ToggleBtn", "SYSTEM: OFF", 10, 32, Color3.fromRGB(200, 60, 60))
+local toggleButton = createSidebarButton("ToggleBtn", "SYSTEM: OFF", Color3.fromRGB(200, 60, 60))
+toggleButton.Size = UDim2.new(1, -16, 0, 32) -- Make main toggle slightly taller
+
+-- Height Adjustment Row
+local heightContainer = Instance.new("Frame")
+heightContainer.Name = "HeightContainer"
+heightContainer.Size = UDim2.new(1, -16, 0, 28)
+heightContainer.BackgroundTransparency = 1
+heightContainer.Parent = sidebarFrame
 
 local minusBtn = Instance.new("TextButton")
-minusBtn.Size = UDim2.new(0, 28, 0, 28)
-minusBtn.Position = UDim2.new(0, 8, 0, 48)
+minusBtn.Size = UDim2.new(0, 28, 1, 0)
+minusBtn.Position = UDim2.new(0, 0, 0, 0)
 minusBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 minusBtn.Text = "-"
 minusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 minusBtn.Font = Enum.Font.SourceSansBold
 minusBtn.TextSize = 16
-minusBtn.Parent = sidebarFrame
+minusBtn.Parent = heightContainer
 
 local minusCorner = Instance.new("UICorner")
 minusCorner.CornerRadius = UDim.new(0, 5)
 minusCorner.Parent = minusBtn
 
 local heightLabel = Instance.new("TextLabel")
-heightLabel.Size = UDim2.new(1, -72, 0, 28)
-heightLabel.Position = UDim2.new(0, 36, 0, 48)
+heightLabel.Size = UDim2.new(1, -64, 1, 0)
+heightLabel.Position = UDim2.new(0, 32, 0, 0)
 heightLabel.BackgroundTransparency = 1
 heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
 heightLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 heightLabel.Font = Enum.Font.SourceSansBold
 heightLabel.TextSize = 13
-heightLabel.Parent = sidebarFrame
+heightLabel.Parent = heightContainer
 
 local plusBtn = Instance.new("TextButton")
-plusBtn.Size = UDim2.new(0, 28, 0, 28)
-plusBtn.Position = UDim2.new(1, -36, 0, 48)
+plusBtn.Size = UDim2.new(0, 28, 1, 0)
+plusBtn.Position = UDim2.new(1, -28, 0, 0)
 plusBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 plusBtn.Text = "+"
 plusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 plusBtn.Font = Enum.Font.SourceSansBold
 plusBtn.TextSize = 16
-plusBtn.Parent = plusBtn
+plusBtn.Parent = heightContainer
 
 local plusCorner = Instance.new("UICorner")
 plusCorner.CornerRadius = UDim.new(0, 5)
 plusCorner.Parent = plusBtn
 
-local equipButton = createSidebarButton("EquipBtn", "Auto-Equip: ON", 82, 28, Color3.fromRGB(60, 150, 200))
-local collectButton = createSidebarButton("CollectBtn", "Auto-Collect: ON", 114, 28, Color3.fromRGB(140, 60, 200))
-local potionButton = createSidebarButton("PotionBtn", "Auto-Potion: ON", 146, 28, Color3.fromRGB(210, 130, 40))
-local dungeonButton = createSidebarButton("DungeonBtn", "Auto-Dungeon: ON", 178, 28, Color3.fromRGB(220, 60, 100))
+local equipButton = createSidebarButton("EquipBtn", "Auto-Equip: ON", Color3.fromRGB(60, 150, 200))
+local collectButton = createSidebarButton("CollectBtn", "Auto-Collect: ON", Color3.fromRGB(140, 60, 200))
+local potionButton = createSidebarButton("PotionBtn", "Auto-Potion: ON", Color3.fromRGB(210, 130, 40))
+local dungeonButton = createSidebarButton("DungeonBtn", "Auto-Dungeon: ON", Color3.fromRGB(220, 60, 100))
+
+-- Right Side Header Row
+local headerRow = Instance.new("Frame")
+headerRow.Size = UDim2.new(1, -20, 0, 25)
+headerRow.BackgroundTransparency = 1
+headerRow.Parent = contentFrame
 
 local portalTitle = Instance.new("TextLabel")
-portalTitle.Size = UDim2.new(1, -40, 0, 25)
-portalTitle.Position = UDim2.new(0, 12, 0, 10)
+portalTitle.Size = UDim2.new(1, -30, 1, 0)
 portalTitle.BackgroundTransparency = 1
-portalTitle.Text = "DYN-GATEWAY SCANNER"
+portalTitle.Text = "PORTAL GATEWAY SCANNER"
 portalTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 portalTitle.Font = Enum.Font.SourceSansBold
 portalTitle.TextSize = 13
 portalTitle.TextXAlignment = Enum.TextXAlignment.Left
-portalTitle.Parent = contentFrame
+portalTitle.Parent = headerRow
 
 local minimizeButton = Instance.new("TextButton")
 minimizeButton.Size = UDim2.new(0, 24, 0, 24)
-minimizeButton.Position = UDim2.new(1, -32, 0, 10)
+minimizeButton.Position = UDim2.new(1, -24, 0, 0)
 minimizeButton.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 minimizeButton.Text = "—"
 minimizeButton.TextColor3 = Color3.fromRGB(200, 200, 200)
 minimizeButton.Font = Enum.Font.SourceSansBold
 minimizeButton.TextSize = 12
-minimizeButton.Parent = contentFrame
+minimizeButton.Parent = headerRow
 
 local minCorner = Instance.new("UICorner")
 minCorner.CornerRadius = UDim.new(0, 5)
 minCorner.Parent = minimizeButton
 
 local refreshPortalsBtn = Instance.new("TextButton")
-refreshPortalsBtn.Size = UDim2.new(1, -24, 0, 28)
-refreshPortalsBtn.Position = UDim2.new(0, 12, 0, 40)
+refreshPortalsBtn.Size = UDim2.new(1, -20, 0, 28)
 refreshPortalsBtn.BackgroundColor3 = Color3.fromRGB(35, 140, 105)
-refreshPortalsBtn.Text = "🔄 SCRAPE WORKSPACE GATES"
+refreshPortalsBtn.Text = "🔄 REFRESH PORTAL CACHE"
 refreshPortalsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 refreshPortalsBtn.Font = Enum.Font.SourceSansBold
 refreshPortalsBtn.TextSize = 12
@@ -194,8 +226,7 @@ refreshCorner.CornerRadius = UDim.new(0, 5)
 refreshCorner.Parent = refreshPortalsBtn
 
 local portalScroll = Instance.new("ScrollingFrame")
-portalScroll.Size = UDim2.new(1, -24, 0, 160)
-portalScroll.Position = UDim2.new(0, 12, 0, 75)
+portalScroll.Size = UDim2.new(1, -20, 0, 150)
 portalScroll.BackgroundTransparency = 1
 portalScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 portalScroll.ScrollBarThickness = 4
@@ -206,7 +237,7 @@ portalListLayout.Padding = UDim.new(0, 4)
 portalListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 portalListLayout.Parent = portalScroll
 
--- // UI SIGNALS // --
+-- // UI INTERACTION SIGNALS // --
 minimizeButton.MouseButton1Click:Connect(function()
     mainFrame.Visible = false
     floatingIcon.Visible = true
@@ -238,7 +269,7 @@ end)
 potionButton.MouseButton1Click:Connect(function()
     autoPotionEnabled = not autoPotionEnabled
     potionButton.Text = autoPotionEnabled and "Auto-Potion: ON" or "Auto-Potion: OFF"
-    potionButton.BackgroundColor3 = autoPotionEnabled and Color3.fromRGB(210, 130, 40) or Color3.fromRGB(80, 80, 80)
+    potionButton.BackgroundColor3 = autoPotionEnabled elder and Color3.fromRGB(210, 130, 40) or Color3.fromRGB(80, 80, 80)
 end)
 
 dungeonButton.MouseButton1Click:Connect(function()
@@ -257,101 +288,81 @@ plusBtn.MouseButton1Click:Connect(function()
     heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
 end)
 
--- // FIXED PORTAL SCANNING ENGINE // --
-local function refreshPortalList()
-    for _, child in ipairs(portalScroll:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
+-- // PORTAL NAVIGATION BYPASS // --
+local function teleportAndEnterPortal(portalObject, categoryName)
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
     
-    local itemsCount = 0
+    local targetPart = portalObject:IsA("Model") and (portalObject.PrimaryPart or portalObject:FindFirstChildOfClass("BasePart")) or portalObject
+    if not targetPart then return end
     
-    -- Scans entire workspace recursively for any generic "PortalModel"
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj.Name == "PortalModel" then
-            itemsCount = itemsCount + 1
-            
-            local displayTitle = "Portal Model [Unparsed]"
-            local rawStrings = {}
-            
-            -- Scrape active text labels found inside its SurfaceGuis/BillboardGuis
-            for _, descendant in ipairs(obj:GetDescendants()) do
-                if descendant:IsA("TextLabel") and descendant.Text ~= "" and #descendant.Text < 40 then
-                    table.insert(rawStrings, descendant.Text)
-                end
-            end
-            
-            -- Reconstruct label based on UI values extracted (e.g., "The Subway - Level 30")
-            if #rawStrings > 0 then
-                local mainZone = rawStrings[1] or "Unknown"
-                local zoneMeta = rawStrings[2] or "Unknown Level"
-                displayTitle = string.format("%s (%s)", mainZone, zoneMeta)
-            end
-            
-            local pBtn = Instance.new("TextButton")
-            pBtn.Size = UDim2.new(1, -8, 0, 32)
-            pBtn.BackgroundColor3 = Color3.fromRGB(85, 45, 115) -- Distinct color for parsed gates
-            pBtn.Text = displayTitle
-            pBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            pBtn.Font = Enum.Font.SourceSansBold
-            pBtn.TextSize = 12
-            pBtn.Parent = portalScroll
-            
-            local btnCorner = Instance.new("UICorner")
-            btnCorner.CornerRadius = UDim.new(0, 5)
-            btnCorner.Parent = pBtn
-            
-            -- Dynamic click verification sequence
-            pBtn.MouseButton1Click:Connect(function()
-                local character = player.Character
-                local root = character and character:FindFirstChild("HumanoidRootPart")
-                local proximityPart = obj:FindFirstChild("ProximityPart")
-                
-                if root and proximityPart then
-                    -- Relocate directly into prompt calculation frame
-                    root.CFrame = proximityPart.CFrame
-                    task.wait(0.2)
-                    
-                    -- Trigger interaction prompt directly via your environment capabilities
-                    local prompt = proximityPart:FindFirstChildOfClass("ProximityPrompt")
-                    if prompt and fireproximityprompt then
-                        fireproximityprompt(prompt)
-                    end
-                end
-            end)
-        end
-    end
+    root.CFrame = targetPart.CFrame * CFrame.new(0, 2, 0)
+    task.wait(0.25)
     
-    portalScroll.CanvasSize = UDim2.new(0, 0, 0, itemsCount * 36)
+    pcall(function() getActDungeonPlayers:InvokeServer(portalObject.Name, 1) end)
+    task.wait(0.1)
+    pcall(function() startDungeonFromGate:InvokeServer() end)
 end
 
+local function refreshPortalList()
+    for _, child in ipairs(portalScroll:GetChildren()) do
+        if child:IsA("TextButton") then child:Destroy() end
+    end
+    
+    local paths = {
+        ["Normal"] = workspace:FindFirstChild("PortalSpawns") and workspace.PortalSpawns:FindFirstChild("Normal"),
+        ["Infinite"] = workspace:FindFirstChild("PortalSpawns") and workspace.PortalSpawns:FindFirstChild("Infinite"),
+        ["Artifact"] = workspace:FindFirstChild("PortalSpawns") and workspace.PortalSpawns:FindFirstChild("ArtifactGates"),
+    }
+    
+    local itemsCount = 0
+    for category, folder in pairs(paths) do
+        if folder then
+            for _, portal in ipairs(folder:GetChildren()) do
+                itemsCount = itemsCount + 1
+                local pBtn = Instance.new("TextButton")
+                pBtn.Size = UDim2.new(1, -8, 0, 26)
+                pBtn.BackgroundColor3 = category == "Normal" and Color3.fromRGB(48, 90, 48) or category == "Infinite" and Color3.fromRGB(48, 68, 95) or Color3.fromRGB(100, 45, 45)
+                pBtn.Text = string.format("[%s] %s", category:upper(), portal.Name)
+                pBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                pBtn.Font = Enum.Font.SourceSans
+                pBtn.TextSize = 12
+                pBtn.Parent = portalScroll
+                
+                local btnCorner = Instance.new("UICorner")
+                btnCorner.CornerRadius = UDim.new(0, 4)
+                btnCorner.Parent = pBtn
+                
+                pBtn.MouseButton1Click:Connect(function() teleportAndEnterPortal(portal, category) end)
+            end
+        end
+    end
+    portalScroll.CanvasSize = UDim2.new(0, 0, 0, itemsCount * 30)
+end
 refreshPortalsBtn.MouseButton1Click:Connect(refreshPortalList)
 
--- // TARGET MONITORING SYSTEM // --
+-- // COMBAT TARGET ENGINE // --
 local function isEnemy(model)
     if model:IsA("Model") and model ~= player.Character then
         local humanoid = model:FindFirstChildOfClass("Humanoid")
         local root = model:FindFirstChild("HumanoidRootPart")
-        if humanoid and root and humanoid.Health > 0 then
-            return true
-        end
+        if humanoid and root and humanoid.Health > 0 then return true end
     end
     return false
 end
 
 local function getClosestEnemy()
     local character = player.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    local playerRoot = character and character:FindFirstChild("HumanoidRootPart")
+    if not playerRoot then return nil end
     
-    local playerRoot = character.HumanoidRootPart
     local closestEnemy = nil
     local shortestDistance = MAX_DETECTION_DIST
 
     for _, obj in pairs(workspace:GetDescendants()) do
         if isEnemy(obj) then
-            local enemyRoot = obj.HumanoidRootPart
-            local distance = (playerRoot.Position - enemyRoot.Position).Magnitude
+            local distance = (playerRoot.Position - obj.HumanoidRootPart.Position).Magnitude
             if distance < shortestDistance then
                 shortestDistance = distance
                 closestEnemy = obj
@@ -362,33 +373,23 @@ local function getClosestEnemy()
 end
 
 local targetEnemy = nil
-
 task.spawn(function()
     while true do
-        if systemEnabled then
-            targetEnemy = getClosestEnemy()
-        else
-            targetEnemy = nil
-        end
+        targetEnemy = systemEnabled and getClosestEnemy() or nil
         task.wait(0.1)
     end
 end)
 
 RunService.Heartbeat:Connect(function()
     if not systemEnabled then return end
-
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    
-    if not root or (humanoid and humanoid.Health <= 0) then return end
+    if not root or (character:FindFirstChildOfClass("Humanoid") and character:FindFirstChildOfClass("Humanoid").Health <= 0) then return end
     
     if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") and targetEnemy:FindFirstChildOfClass("Humanoid") and targetEnemy:FindFirstChildOfClass("Humanoid").Health > 0 then
         local enemyRoot = targetEnemy.HumanoidRootPart
         local _, boxSize = targetEnemy:GetBoundingBox()
-        
-        local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
-        local targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
+        local targetPosition = Vector3.new(enemyRoot.Position.X, enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT, enemyRoot.Position.Z)
         
         root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
         root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
@@ -397,36 +398,30 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- // AUTO POTION ENGINE // --
+-- // AUTO POTION // --
 task.spawn(function()
     while true do
         task.wait(0.3)
         if systemEnabled and autoPotionEnabled then
             local character = player.Character
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            
-            if humanoid and humanoid.Health > 0 then
-                local hpPercent = humanoid.Health / humanoid.MaxHealth
-                if hpPercent <= 0.5 then
-                    pcall(function() healRemote:InvokeServer() end)
-                    task.wait(1.5) 
-                end
+            if humanoid and humanoid.Health > 0 and (humanoid.Health / humanoid.MaxHealth) <= 0.5 then
+                pcall(function() healRemote:InvokeServer() end)
+                task.wait(1.5)
             end
         end
     end
 end)
 
--- // DROP RECOVERY PROCESS // --
+-- // INSTANT REMOTE DROP VACUUM // --
 local function scanAndVerifyDrop(obj)
     if not systemEnabled or not autoCollectEnabled or not obj then return end
-    
     local dropId = nil
     local uuidPattern = "%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x"
 
     if string.match(obj.Name, uuidPattern) then
         dropId = obj.Name
     end
-
     if not dropId then
         for _, child in ipairs(obj:GetChildren()) do
             if child:IsA("StringValue") and string.match(child.Value, uuidPattern) then
@@ -438,7 +433,6 @@ local function scanAndVerifyDrop(obj)
             end
         end
     end
-
     if not dropId then
         for attrName, attrVal in pairs(obj:GetAttributes()) do
             if type(attrVal) == "string" and string.match(attrVal, uuidPattern) then
@@ -450,26 +444,21 @@ local function scanAndVerifyDrop(obj)
 
     if dropId and not processedDrops[dropId] then
         processedDrops[dropId] = true
-        task.spawn(function()
-            pcall(function()
-                dropRemote:InvokeServer(dropId)
-            end)
-        end)
+        task.spawn(function() pcall(function() dropRemote:InvokeServer(dropId) end) end)
     end
 end
 
 local cameraInstance = workspace:FindFirstChildOfClass("Camera") or workspace:FindFirstChild("Camera")
-if cameraInstance then
-    cameraInstance.DescendantAdded:Connect(scanAndVerifyDrop)
-end
+if cameraInstance then cameraInstance.DescendantAdded:Connect(scanAndVerifyDrop) end
 
 task.spawn(function()
     while true do
         task.wait(0.3)
         if systemEnabled and autoCollectEnabled then
             local activeCam = workspace.CurrentCamera or workspace:FindFirstChild("Camera")
-            if activeCam and activeCam:FindFirstChild("Drops") then
-                for _, itemElement in ipairs(activeCam.Drops:GetDescendants()) do
+            local dropsFolder = activeCam and activeCam:FindFirstChild("Drops")
+            if dropsFolder then
+                for _, itemElement in ipairs(dropsFolder:GetDescendants()) do
                     scanAndVerifyDrop(itemElement)
                 end
             end
@@ -477,19 +466,15 @@ task.spawn(function()
     end
 end)
 
--- // WEAPON MANAGEMENT // --
+-- // WEAPON & AUTO ATTACK // --
 task.spawn(function()
     while true do
         task.wait(0.5)
-        if systemEnabled and autoEquipEnabled then
-            local character = player.Character
-            if character and character:FindFirstChildOfClass("Humanoid") and character.Humanoid.Health > 0 then
-                local holdingTool = character:FindFirstChildOfClass("Tool")
-                if not holdingTool then
-                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
-                    task.wait(0.02)
-                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
-                end
+        if systemEnabled and autoEquipEnabled and player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+            if not player.Character:FindFirstChildOfClass("Tool") then
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
+                task.wait(0.02)
+                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
             end
         end
     end
@@ -499,7 +484,7 @@ task.spawn(function()
     while true do
         task.wait(M1_SPEED)
         if systemEnabled and targetEnemy then
-            task.spawn(function() pcall(function() useWeaponRemote:InvokeServer() end) end)
+            task.spawn(pcall, function() useWeaponRemote:InvokeServer() end)
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
             task.wait(0.01)
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
@@ -507,18 +492,15 @@ task.spawn(function()
     end
 end)
 
--- // SCENE HANDSHAKE ENGINE // --
+-- // DUNGEON HANDSHAKING // --
 task.spawn(function()
     while true do
         task.wait(1.5)
         if systemEnabled and autoDungeonEnabled then
             local mainGui = playerGui:FindFirstChild("Main")
-            local startBtn = mainGui and mainGui:FindFirstChild("StartBtn")
-            
-            if startBtn and startBtn.Visible then
+            if mainGui and mainGui:FindFirstChild("StartBtn") and mainGui.StartBtn.Visible then
                 task.spawn(pcall, function() startDungeonRemote:InvokeServer() end)
             end
-            
             local gateGui = playerGui:FindFirstChild("Gate")
             if gateGui and (gateGui.Enabled or (gateGui:FindFirstChild("Main") and gateGui.Main.Visible)) then
                 task.spawn(pcall, function() enterGateRemote:InvokeServer() end)
@@ -527,9 +509,8 @@ task.spawn(function()
     end
 end)
 
--- // SPELLCAST LOGIC // --
+-- // SKILLS CAST LOOP // --
 local skills = {Enum.KeyCode.F, Enum.KeyCode.R, Enum.KeyCode.C}
-
 task.spawn(function()
     while true do
         for _, key in ipairs(skills) do
