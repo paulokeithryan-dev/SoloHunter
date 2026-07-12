@@ -4,21 +4,21 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PathfindingService = game:GetService("PathfindingService")
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui", 5) or player:ClassName("PlayerGui")
+local playerGui = player:WaitForChild("PlayerGui", 5) or player:FindFirstChildWhichIsA("PlayerGui")
 
 -- // CONFIG & RUNTIME STATE // --
 local systemEnabled = false
 local autoEquipEnabled = true 
 local autoCollectEnabled = true  
 local autoPotionEnabled = true   
-local autoDungeonEnabled = true  
+local autoDungeonEnabled = true   
 
 local STOP_DISTANCE = 4         
 local WALK_SPEED = 32           
 local ATTACK_RANGE = 12 
 local MAX_DETECTION_DIST = 1000 
-local M1_SPEED = 0.05            
-local SKILL_INTERVAL = 1.0      
+local M1_SPEED = 0.05           
+local SKILL_INTERVAL = 1.0     
 
 local processedDrops = {}
 
@@ -67,7 +67,6 @@ padding.PaddingTop = UDim.new(0, 10)
 padding.PaddingBottom = UDim.new(0, 10)
 padding.Parent = mainFrame
 
--- Floating Open Button
 local floatingIcon = Instance.new("TextButton")
 floatingIcon.Name = "FloatingIcon"
 floatingIcon.Size = UDim2.new(0, 60, 0, 35)
@@ -81,7 +80,6 @@ floatingIcon.Visible = false
 floatingIcon.Parent = screenGui
 Instance.new("UICorner", floatingIcon).CornerRadius = UDim.new(0, 6)
 
--- Header Section
 local headerFrame = Instance.new("Frame")
 headerFrame.Size = UDim2.new(1, -16, 0, 20)
 headerFrame.BackgroundTransparency = 1
@@ -108,7 +106,6 @@ minimizeButton.TextSize = 10
 minimizeButton.Parent = headerFrame
 Instance.new("UICorner", minimizeButton).CornerRadius = UDim.new(0, 4)
 
--- UI Building Helpers
 local function createMenuButton(text, color)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, -16, 0, 26)
@@ -163,87 +160,31 @@ local function createAdjustmentRow(labelText, startVal, callbackMinus, callbackP
     plus.MouseButton1Click:Connect(function() callbackPlus(lbl) end)
 end
 
--- Render Controls
 local toggleButton = createMenuButton("SYSTEM: OFF", Color3.fromRGB(200, 60, 60))
 toggleButton.Size = UDim2.new(1, -16, 0, 30)
 
-createAdjustmentRow("Speed", WALK_SPEED, function(l)
-    WALK_SPEED = math.clamp(WALK_SPEED - 4, 16, 150)
-    l.Text = "Speed: " .. tostring(WALK_SPEED)
-end, function(l)
-    WALK_SPEED = math.clamp(WALK_SPEED + 4, 16, 150)
-    l.Text = "Speed: " .. tostring(WALK_SPEED)
-end)
-
-createAdjustmentRow("Scan Dist", MAX_DETECTION_DIST, function(l)
-    MAX_DETECTION_DIST = math.clamp(MAX_DETECTION_DIST - 100, 100, 10000)
-    l.Text = "Scan Dist: " .. tostring(MAX_DETECTION_DIST)
-end, function(l)
-    MAX_DETECTION_DIST = math.clamp(MAX_DETECTION_DIST + 100, 100, 10000)
-    l.Text = "Scan Dist: " .. tostring(MAX_DETECTION_DIST)
-end)
-
-createAdjustmentRow("Stop Dist", STOP_DISTANCE, function(l)
-    STOP_DISTANCE = math.clamp(STOP_DISTANCE - 1, 1, 30)
-    l.Text = "Stop Dist: " .. tostring(STOP_DISTANCE)
-end, function(l)
-    STOP_DISTANCE = math.clamp(STOP_DISTANCE + 1, 1, 30)
-    l.Text = "Stop Dist: " .. tostring(STOP_DISTANCE)
-end)
+createAdjustmentRow("Speed", WALK_SPEED, function(l) WALK_SPEED = math.clamp(WALK_SPEED - 4, 16, 150) l.Text = "Speed: " .. tostring(WALK_SPEED) end, function(l) WALK_SPEED = math.clamp(WALK_SPEED + 4, 16, 150) l.Text = "Speed: " .. tostring(WALK_SPEED) end)
+createAdjustmentRow("Scan Dist", MAX_DETECTION_DIST, function(l) MAX_DETECTION_DIST = math.clamp(MAX_DETECTION_DIST - 100, 100, 10000) l.Text = "Scan Dist: " .. tostring(MAX_DETECTION_DIST) end, function(l) MAX_DETECTION_DIST = math.clamp(MAX_DETECTION_DIST + 100, 100, 10000) l.Text = "Scan Dist: " .. tostring(MAX_DETECTION_DIST) end)
+createAdjustmentRow("Stop Dist", STOP_DISTANCE, function(l) STOP_DISTANCE = math.clamp(STOP_DISTANCE - 1, 1, 30) l.Text = "Stop Dist: " .. tostring(STOP_DISTANCE) end, function(l) STOP_DISTANCE = math.clamp(STOP_DISTANCE + 1, 1, 30) l.Text = "Stop Dist: " .. tostring(STOP_DISTANCE) end)
 
 local equipButton = createMenuButton("Auto-Equip: ON", Color3.fromRGB(45, 110, 145))
 local collectButton = createMenuButton("Auto-Collect: ON", Color3.fromRGB(110, 50, 150))
 local potionButton = createMenuButton("Auto-Potion: ON", Color3.fromRGB(170, 95, 30))
 local dungeonButton = createMenuButton("Auto-Dungeon: ON", Color3.fromRGB(180, 45, 80))
 
--- UI Action Listeners
-minimizeButton.MouseButton1Click:Connect(function()
-    mainFrame.Visible = false
-    floatingIcon.Visible = true
-end)
-
-floatingIcon.MouseButton1Click:Connect(function()
-    floatingIcon.Visible = false
-    mainFrame.Visible = true
-end)
-
+minimizeButton.MouseButton1Click:Connect(function() mainFrame.Visible = false floatingIcon.Visible = true end)
+floatingIcon.MouseButton1Click:Connect(function() floatingIcon.Visible = false mainFrame.Visible = true end)
 toggleButton.MouseButton1Click:Connect(function()
     systemEnabled = not systemEnabled
     toggleButton.Text = systemEnabled and "SYSTEM: ON" or "SYSTEM: OFF"
     toggleButton.BackgroundColor3 = systemEnabled and Color3.fromRGB(50, 170, 50) or Color3.fromRGB(200, 60, 60)
-    
-    if not systemEnabled then
-        pcall(function()
-            local char = player.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if hum then hum.WalkSpeed = 16 end
-        end)
-    end
+    if not systemEnabled then pcall(function() local char = player.Character local hum = char and char:FindFirstChildOfClass("Humanoid") if hum then hum.WalkSpeed = 16 end end) end
 end)
 
-equipButton.MouseButton1Click:Connect(function()
-    autoEquipEnabled = not autoEquipEnabled
-    equipButton.Text = autoEquipEnabled and "Auto-Equip: ON" or "Auto-Equip: OFF"
-    equipButton.BackgroundColor3 = autoEquipEnabled and Color3.fromRGB(45, 110, 145) or Color3.fromRGB(70, 70, 70)
-end)
-
-collectButton.MouseButton1Click:Connect(function()
-    autoCollectEnabled = not autoCollectEnabled
-    collectButton.Text = autoCollectEnabled and "Auto-Collect: ON" or "Auto-Collect: OFF"
-    collectButton.BackgroundColor3 = autoCollectEnabled and Color3.fromRGB(110, 50, 150) or Color3.fromRGB(70, 70, 70)
-end)
-
-potionButton.MouseButton1Click:Connect(function()
-    autoPotionEnabled = not autoPotionEnabled
-    potionButton.Text = autoPotionEnabled and "Auto-Potion: ON" or "Auto-Potion: OFF"
-    potionButton.BackgroundColor3 = autoPotionEnabled and Color3.fromRGB(170, 95, 30) or Color3.fromRGB(70, 70, 70)
-end)
-
-dungeonButton.MouseButton1Click:Connect(function()
-    autoDungeonEnabled = not autoDungeonEnabled
-    dungeonButton.Text = autoDungeonEnabled and "Auto-Dungeon: ON" or "Auto-Dungeon: OFF"
-    dungeonButton.BackgroundColor3 = autoDungeonEnabled and Color3.fromRGB(180, 45, 80) or Color3.fromRGB(70, 70, 70)
-end)
+equipButton.MouseButton1Click:Connect(function() autoEquipEnabled = not autoEquipEnabled equipButton.Text = autoEquipEnabled and "Auto-Equip: ON" or "Auto-Equip: OFF" end)
+collectButton.MouseButton1Click:Connect(function() autoCollectEnabled = not autoCollectEnabled collectButton.Text = autoCollectEnabled and "Auto-Collect: ON" or "Auto-Collect: OFF" end)
+potionButton.MouseButton1Click:Connect(function() autoPotionEnabled = not autoPotionEnabled potionButton.Text = autoPotionEnabled and "Auto-Potion: ON" or "Auto-Potion: OFF" end)
+dungeonButton.MouseButton1Click:Connect(function() autoDungeonEnabled = not autoDungeonEnabled dungeonButton.Text = autoDungeonEnabled and "Auto-Dungeon: ON" or "Auto-Dungeon: OFF" end)
 
 -- =============================================================================
 -- PHASE 2: CRASH-PROOF REMOTE RESOLVER
@@ -252,14 +193,8 @@ local function secureFetchPath(pathArray)
     local currentObj = game
     for _, segmentName in ipairs(pathArray) do
         if not currentObj then return nil end
-        local success, foundChild = pcall(function()
-            return currentObj:WaitForChild(segmentName, 1.5)
-        end)
-        if success and foundChild then
-            currentObj = foundChild
-        else
-            return nil
-        end
+        local success, foundChild = pcall(function() return currentObj:WaitForChild(segmentName, 1.5) end)
+        if success and foundChild then currentObj = foundChild else return nil end
     end
     return currentObj
 end
@@ -273,16 +208,12 @@ local enterGateRemote = secureFetchPath({"ReplicatedStorage", "RemoteServices", 
 -- =============================================================================
 -- PHASE 3: THE TRACKING & MOTION ENGINE
 -- =============================================================================
-
--- High-Performance Radius Scanner
 local targetEnemy = nil
 task.spawn(function()
     local function getEnemyModelFromPart(part)
         local current = part
         while current and current ~= workspace do
-            if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") then
-                return current
-            end
+            if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") then return current end
             current = current.Parent
         end
         return nil
@@ -292,19 +223,13 @@ task.spawn(function()
         if systemEnabled then
             local character = player.Character
             local playerRoot = character and character:FindFirstChild("HumanoidRootPart")
-            
             if playerRoot then
                 local closestEnemy = nil
                 local shortestDistance = MAX_DETECTION_DIST
-                
                 local overlapParams = OverlapParams.new()
                 overlapParams.FilterType = Enum.RaycastFilterType.Exclude
                 overlapParams.FilterDescendantsInstances = {character}
-                
-                local success, parts = pcall(function()
-                    return workspace:GetPartBoundsInRadius(playerRoot.Position, MAX_DETECTION_DIST, overlapParams)
-                end)
-                
+                local success, parts = pcall(function() return workspace:GetPartBoundsInRadius(playerRoot.Position, MAX_DETECTION_DIST, overlapParams) end)
                 if success and parts then
                     local checkedModels = {}
                     for _, part in ipairs(parts) do
@@ -313,13 +238,9 @@ task.spawn(function()
                             checkedModels[model] = true
                             local hum = model:FindFirstChildOfClass("Humanoid")
                             local eRoot = model:FindFirstChild("HumanoidRootPart")
-                            
                             if hum and eRoot and hum.Health > 0 then
                                 local distance = (playerRoot.Position - eRoot.Position).Magnitude
-                                if distance < shortestDistance then
-                                    shortestDistance = distance
-                                    closestEnemy = model
-                                end
+                                if distance < shortestDistance then shortestDistance = distance; closestEnemy = model end
                             end
                         end
                     end
@@ -331,77 +252,58 @@ task.spawn(function()
         else
             targetEnemy = nil
         end
-        task.wait(0.1)
+        task.wait(0.05) -- Faster scanning
     end
 end)
 
--- Scent-Tracker Locomotion (Only recomputes when previous marker is fully exhausted)
+-- FLAWLESS MOTION ENGINE
 task.spawn(function()
-    local currentWaypoints = {}
-    local currentWaypointIndex = 1
-    local destinationSpot = nil
-
+    local lastPos = Vector3.new(0,0,0)
+    local stuckTime = 0
+    
     while true do
-        task.wait(0.02) -- Blazing fast loop speed for perfect responsiveness
+        task.wait(0.03) -- Faster tick for responsiveness
         if systemEnabled and targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") then
-            local character = player.Character
-            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            local root = character and character:FindFirstChild("HumanoidRootPart")
+            local char = player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local root = char and char:FindFirstChild("HumanoidRootPart")
             
-            if humanoid and root and humanoid.Health > 0 then
-                humanoid.WalkSpeed = WALK_SPEED
-                
+            if hum and root and hum.Health > 0 then
+                hum.WalkSpeed = WALK_SPEED
                 local enemyRoot = targetEnemy.HumanoidRootPart
-                local distanceToEnemy = (root.Position - enemyRoot.Position).Magnitude
+                local dist = (root.Position - enemyRoot.Position).Magnitude
                 
-                if distanceToEnemy > STOP_DISTANCE then
-                    -- CRITICAL GATING: Only create a new path if we don't have one, or if we fully reached our old target location
-                    if not destinationSpot or #currentWaypoints == 0 or currentWaypointIndex > #currentWaypoints then
-                        destinationSpot = enemyRoot.Position
-                        
-                        pcall(function()
-                            path:ComputeAsync(root.Position, destinationSpot)
-                        end)
-                        
-                        if path.Status == Enum.PathStatus.Success then
-                            currentWaypoints = path:GetWaypoints()
-                            currentWaypointIndex = 2 
-                        else
-                            -- Fallback: Directly run towards it if pathfinding drops
-                            currentWaypoints = {}
-                            humanoid:MoveTo(destinationSpot)
-                        end
+                -- Stuck Detection
+                if (root.Position - lastPos).Magnitude < 0.2 then
+                    stuckTime = stuckTime + 0.03
+                else
+                    stuckTime = 0
+                end
+                lastPos = root.Position
+
+                if dist > STOP_DISTANCE then
+                    -- If stuck or path invalidated, force repath
+                    if stuckTime > 0.5 then
+                        path:ComputeAsync(root.Position, enemyRoot.Position)
+                        stuckTime = 0
                     end
                     
-                    -- Smoothly cycle through the mapped out coordinates
-                    if #currentWaypoints > 0 and currentWaypointIndex <= #currentWaypoints then
-                        local targetWaypoint = currentWaypoints[currentWaypointIndex]
-                        
-                        -- Move smoothly towards current node point
-                        humanoid:MoveTo(targetWaypoint.Position)
-                        
-                        if targetWaypoint.Action == Enum.PathWaypointAction.Jump then
-                            humanoid.Jump = true
+                    local success, err = pcall(function() path:ComputeAsync(root.Position, enemyRoot.Position) end)
+                    if success and path.Status == Enum.PathStatus.Success then
+                        local waypoints = path:GetWaypoints()
+                        if waypoints[2] then
+                            hum:MoveTo(waypoints[2].Position)
+                            if waypoints[2].Action == Enum.PathWaypointAction.Jump then hum.Jump = true end
                         end
-                        
-                        -- Check if we arrived at this specific node point
-                        if (root.Position - targetWaypoint.Position).Magnitude < 3.5 then
-                            currentWaypointIndex = currentWaypointIndex + 1
-                        end
+                    else
+                        hum:MoveTo(enemyRoot.Position)
                     end
                 else
-                    -- Within hitting distance: slam full brakes and look directly at them
-                    humanoid:MoveTo(root.Position)
+                    hum:MoveTo(root.Position) -- Stop
                     root.CFrame = CFrame.lookAt(root.Position, Vector3.new(enemyRoot.Position.X, root.Position.Y, enemyRoot.Position.Z))
-                    
-                    -- Wipe variables clean so we recompute instantly if they try to bounce
-                    currentWaypoints = {}
-                    destinationSpot = nil
+                    stuckTime = 0
                 end
             end
-        else
-            currentWaypoints = {}
-            destinationSpot = nil
         end
     end
 end)
@@ -411,11 +313,11 @@ task.spawn(function()
     while true do
         task.wait(0.3)
         if systemEnabled and autoPotionEnabled and healRemote then
-            local character = player.Character
-            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 and (humanoid.Health / humanoid.MaxHealth) <= 0.5 then
+            local char = player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 and (hum.Health / hum.MaxHealth) <= 0.5 then
                 pcall(function() healRemote:InvokeServer() end)
-                task.wait(1.5)
+                task.wait(1.0)
             end
         end
     end
@@ -423,78 +325,49 @@ end)
 
 -- Auto Collect Module
 task.spawn(function()
-    local function scanAndVerifyDrop(obj)
-        if not systemEnabled or not autoCollectEnabled or not obj or not dropRemote then return end
-        local dropId = nil
-        local uuidPattern = "%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x"
-
-        if string.match(obj.Name, uuidPattern) then
-            dropId = obj.Name
-        end
-        if not dropId then
-            for _, child in ipairs(obj:GetChildren()) do
-                if child:IsA("StringValue") and string.match(child.Value, uuidPattern) then
-                    dropId = child.Value
-                    break
-                elseif string.match(child.Name, uuidPattern) then
-                    dropId = child.Name
-                    break
-                end
-            end
-        end
-
-        if dropId and not processedDrops[dropId] then
-            processedDrops[dropId] = true
-            task.spawn(function() pcall(function() dropRemote:InvokeServer(dropId) end) end)
-        end
-    end
-
-    local cameraInstance = workspace:FindFirstChildOfClass("Camera") or workspace:FindFirstChild("Camera")
-    if cameraInstance then 
-        cameraInstance.DescendantAdded:Connect(function(descendant)
-            pcall(scanAndVerifyDrop, descendant)
-        end) 
-    end
-
     while true do
-        task.wait(0.4) 
-        if systemEnabled and autoCollectEnabled then
-            local activeCam = workspace.CurrentCamera or workspace:FindFirstChild("Camera")
+        task.wait(0.2)
+        if systemEnabled and autoCollectEnabled and dropRemote then
+            local activeCam = workspace.CurrentCamera
             local dropsFolder = activeCam and activeCam:FindFirstChild("Drops")
             if dropsFolder then
-                for _, itemElement in ipairs(dropsFolder:GetDescendants()) do
-                    pcall(scanAndVerifyDrop, itemElement)
+                for _, item in ipairs(dropsFolder:GetDescendants()) do
+                    if item:IsA("BasePart") or item:IsA("Model") then
+                        local id = string.match(item.Name, "%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x")
+                        if id and not processedDrops[id] then
+                            processedDrops[id] = true
+                            pcall(function() dropRemote:InvokeServer(id) end)
+                        end
+                    end
                 end
             end
         end
     end
 end)
 
--- Auto Weapon Equip Module
+-- Auto Weapon Equip
 task.spawn(function()
     while true do
-        task.wait(0.6)
-        if systemEnabled and autoEquipEnabled and player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
-            if not player.Character:FindFirstChildOfClass("Tool") then
+        task.wait(0.3)
+        if systemEnabled and autoEquipEnabled then
+            local char = player.Character
+            if char and not char:FindFirstChildOfClass("Tool") then
                 VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
-                task.wait(0.02)
+                task.wait(0.05)
                 VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
             end
         end
     end
 end)
 
--- Attack Engine Module
+-- Attack Engine
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
-        local character = player.Character
-        local root = character and character:FindFirstChild("HumanoidRootPart")
-        
-        if systemEnabled and targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") and root and useWeaponRemote then
-            local currentDistance = (root.Position - targetEnemy.HumanoidRootPart.Position).Magnitude
-            if currentDistance <= ATTACK_RANGE then
-                task.spawn(pcall, function() useWeaponRemote:InvokeServer() end)
+        if systemEnabled and targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") then
+            local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            if root and (root.Position - targetEnemy.HumanoidRootPart.Position).Magnitude <= ATTACK_RANGE then
+                pcall(function() useWeaponRemote:InvokeServer() end)
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
                 task.wait(0.01)
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
@@ -503,29 +376,15 @@ task.spawn(function()
     end
 end)
 
--- Auto Dungeon Starter Module
+-- Auto Dungeon Starter
 task.spawn(function()
     while true do
-        task.wait(0.8)
+        task.wait(0.5)
         if systemEnabled and autoDungeonEnabled then
             local mainGui = playerGui:FindFirstChild("Main")
             if mainGui and mainGui:FindFirstChild("StartBtn") and mainGui.StartBtn.Visible and startDungeonRemote then
                 pcall(function() startDungeonRemote:InvokeServer() end)
             end
-            
-            for _, gui in ipairs(playerGui:GetChildren()) do
-                if gui:IsA("ScreenGui") and gui.Name ~= "CoreEngine_v21" then
-                    for _, element in ipairs(gui:GetDescendants()) do
-                        if element:IsA("TextButton") and element.Visible and startDungeonRemote then
-                            local txt = string.lower(element.Text)
-                            if string.find(txt, "start") or string.find(txt, "ready") then
-                                pcall(function() startDungeonRemote:InvokeServer() end)
-                            end
-                        end
-                    end
-                end
-            end
-            
             local gateGui = playerGui:FindFirstChild("Gate")
             if gateGui and enterGateRemote then
                 if gateGui.Enabled or (gateGui:FindFirstChild("Main") and gateGui.Main.Visible) then
@@ -536,27 +395,18 @@ task.spawn(function()
     end
 end)
 
--- Range-Gated Skills Module
+-- Skills
 local skills = {Enum.KeyCode.F, Enum.KeyCode.R, Enum.KeyCode.C}
 task.spawn(function()
     while true do
         for _, key in ipairs(skills) do
-            local character = player.Character
-            local root = character and character:FindFirstChild("HumanoidRootPart")
-            
-            if systemEnabled and targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") and root then
-                local currentDistance = (root.Position - targetEnemy.HumanoidRootPart.Position).Magnitude
-                if currentDistance <= ATTACK_RANGE then
-                    VirtualInputManager:SendKeyEvent(true, key, false, game)
-                    task.wait(0.05)
-                    VirtualInputManager:SendKeyEvent(false, key, false, game)
-                    task.wait(SKILL_INTERVAL)
-                else
-                    task.wait(0.1)
-                end
-            else
-                task.wait(0.2)
+            if systemEnabled and targetEnemy then
+                VirtualInputManager:SendKeyEvent(true, key, false, game)
+                task.wait(0.05)
+                VirtualInputManager:SendKeyEvent(false, key, false, game)
+                task.wait(SKILL_INTERVAL)
             end
+            task.wait(0.1)
         end
     end
 end)
