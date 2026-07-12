@@ -1,21 +1,143 @@
--- // DIAGNOSTIC SCRIPT: Remote Path Finder // --
+-- // INITIALIZATION: No Loadstrings, No External Dependencies // --
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local rs = ReplicatedStorage:FindFirstChild("RemoteServices")
 
-if not rs then
-    warn("CRITICAL ERROR: 'RemoteServices' folder not found in ReplicatedStorage. Is the game loaded?")
-    return
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- // SAFE REMOTE RESOLUTION // --
+-- We use FindFirstChild to ensure we don't crash if paths are wrong
+local function getRemote(pathTable)
+    local obj = ReplicatedStorage
+    for _, name in ipairs(pathTable) do
+        obj = obj and obj:FindFirstChild(name)
+    end
+    return obj
 end
 
-print("--- RemoteServices Found. Mapping children... ---")
+local dropRemote = getRemote({"RemoteServices", "DropsService", "RF", "CollectDrop"})
+local healRemote = getRemote({"RemoteServices", "HealingService", "RF", "UseHeal"})
+local useWeaponRemote = getRemote({"RemoteServices", "CombatService", "RF", "UseWeapon"})
+local startDungeonRemote = getRemote({"RemoteServices", "DungeonService", "RF", "StartDungeon"})
+local enterGateRemote = getRemote({"RemoteServices", "PortalService", "RF", "CanEnterGate"})
 
-for _, child in pairs(rs:GetChildren()) do
-    print("Found Service: " .. child.Name)
-    if child:FindFirstChild("RF") then
-        for _, remote in pairs(child.RF:GetChildren()) do
-            print("   -> Remote Found: " .. remote.Name .. " | Path: " .. remote:GetFullName())
+-- // CONFIG STATE // --
+local systemEnabled = false
+local autoEquipEnabled = true 
+local autoCollectEnabled = true  
+local autoPotionEnabled = true   
+local autoDungeonEnabled = true  
+
+local HOVER_HEIGHT = 4        
+local MAX_DETECTION_DIST = 300  
+local M1_SPEED = 0.1            
+
+-- // UI BUILDING (Native Roblox Instances) // --
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AutoCombatUI_Native"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 190, 0, 245)
+mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+local function createButton(name, text, pos, color)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -10, 0, 35)
+    btn.Position = pos
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Parent = mainFrame
+    Instance.new("UICorner", btn)
+    return btn
+end
+
+local toggleBtn = createButton("Toggle", "SYSTEM: OFF", UDim2.new(0, 5, 0, 5), Color3.fromRGB(200, 60, 60))
+local collectBtn = createButton("Collect", "Auto-Collect: ON", UDim2.new(0, 5, 0, 45), Color3.fromRGB(140, 60, 200))
+local dungeonBtn = createButton("Dungeon", "Auto-Dungeon: ON", UDim2.new(0, 5, 0, 85), Color3.fromRGB(220, 60, 100))
+
+toggleBtn.MouseButton1Click:Connect(function()
+    systemEnabled = not systemEnabled
+    toggleBtn.Text = systemEnabled and "SYSTEM: ON" or "SYSTEM: OFF"
+    toggleBtn.BackgroundColor3 = systemEnabled and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(200, 60, 60)
+end)
+
+collectBtn.MouseButton1Click:Connect(function()
+    autoCollectEnabled = not autoCollectEnabled
+    collectBtn.Text = autoCollectEnabled and "Auto-Collect: ON" or "Auto-Collect: OFF"
+end)
+
+dungeonBtn.MouseButton1Click:Connect(function()
+    autoDungeonEnabled = not autoDungeonEnabled
+    dungeonBtn.Text = autoDungeonEnabled and "Auto-Dungeon: ON" or "Auto-Dungeon: OFF"
+end)
+
+-- // COMBAT LOGIC // --
+local function getClosestEnemy()
+    local myHrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return nil end
+    local closest, shortest = nil, MAX_DETECTION_DIST
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") and obj.Humanoid.Health > 0 and obj ~= player.Character then
+            local dist = (myHrp.Position - obj.HumanoidRootPart.Position).Magnitude
+            if dist < shortest then closest, shortest = obj, dist end
         end
     end
+    return closest
 end
 
-print("--- Mapping Complete. Compare these names with the script's paths. ---")
+RunService.Heartbeat:Connect(function()
+    if not systemEnabled then return end
+    local enemy = getClosestEnemy()
+    if enemy and enemy:FindFirstChild("HumanoidRootPart") then
+        local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.CFrame = CFrame.lookAt(enemy.HumanoidRootPart.Position + Vector3.new(0, HOVER_HEIGHT, 0), enemy.HumanoidRootPart.Position)
+        end
+    end
+end)
+
+-- // AUTO ATTACK // --
+task.spawn(function()
+    while task.wait(M1_SPEED) do
+        if systemEnabled and useWeaponRemote then
+            pcall(function() useWeaponRemote:InvokeServer(1, {getClosestEnemy()}, 0.4, "", "CS_HW_V1") end)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        end
+    end
+end)
+
+-- // AUTO COLLECT // --
+task.spawn(function()
+    while task.wait(0.5) do
+        if systemEnabled and autoCollectEnabled and dropRemote then
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj.Name:lower():find("drop") or obj.Name:lower():find("loot") then
+                    pcall(function() dropRemote:InvokeServer(obj) end)
+                end
+            end
+        end
+    end
+end)
+
+-- // AUTO DUNGEON // --
+task.spawn(function()
+    while task.wait(2) do
+        if systemEnabled and autoDungeonEnabled then
+            if startDungeonRemote then pcall(function() startDungeonRemote:InvokeServer() end) end
+            if enterGateRemote then pcall(function() enterGateRemote:InvokeServer() end) end
+        end
+    end
+end)
+
+print("[System] Native UI Script Loaded Successfully.")
