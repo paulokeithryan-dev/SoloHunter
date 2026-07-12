@@ -7,7 +7,6 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- // SAFE NON-BLOCKING REMOTE FETCHING // --
--- Prevents the script from infinitely freezing if a remote takes time to load
 local function safeWaitForChild(parent, childName)
     return parent and parent:WaitForChild(childName, 3)
 end
@@ -46,12 +45,12 @@ local path = PathfindingService:CreatePath({
 
 -- // COMPACT CONTROL CARD UI // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "PurePerformance_v17"
+screenGui.Name = "PurePerformance_v18"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 210, 0, 340) -- Small, clean, lightweight single-column card
+mainFrame.Size = UDim2.new(0, 210, 0, 340) 
 mainFrame.Position = UDim2.new(0.85, -105, 0.5, -170) 
 mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 mainFrame.BorderSizePixel = 0
@@ -93,7 +92,7 @@ floatingIcon.Visible = false
 floatingIcon.Parent = screenGui
 Instance.new("UICorner", floatingIcon).CornerRadius = UDim.new(0, 6)
 
--- Header/Minimize Button Row
+-- Header Frame
 local headerFrame = Instance.new("Frame")
 headerFrame.Size = UDim2.new(1, -16, 0, 20)
 headerFrame.BackgroundTransparency = 1
@@ -175,7 +174,7 @@ local function createAdjustmentRow(labelText, startVal, callbackMinus, callbackP
     plus.MouseButton1Click:Connect(function() callbackPlus(lbl) end)
 end
 
--- Generate Controls
+-- Generate UI Components
 local toggleButton = createMenuButton("SYSTEM: OFF", Color3.fromRGB(200, 60, 60))
 toggleButton.Size = UDim2.new(1, -16, 0, 30)
 
@@ -259,7 +258,7 @@ end)
 
 -- // REAL-TIME TARGET ACQUISITION SCANNER // --
 local function isEnemy(model)
-    if model and model:IsA("Model") and model model ~= player.Character then
+    if model and model:IsA("Model") and model ~= player.Character then
         local humanoid = model:FindFirstChildOfClass("Humanoid")
         local root = model:FindFirstChild("HumanoidRootPart")
         if humanoid and root and humanoid.Health > 0 then return true end
@@ -309,7 +308,7 @@ task.spawn(function()
             local root = character and character:FindFirstChild("HumanoidRootPart")
             
             if humanoid and root and humanoid.Health > 0 then
-                humanid.WalkSpeed = WALK_SPEED
+                humanoid.WalkSpeed = WALK_SPEED
                 
                 local enemyRoot = targetEnemy.HumanoidRootPart
                 local distanceToEnemy = (root.Position - enemyRoot.Position).Magnitude
@@ -455,15 +454,13 @@ task.spawn(function()
     while true do
         task.wait(0.8)
         if systemEnabled and autoDungeonEnabled then
-            -- Check for standard UI setups
             local mainGui = playerGui:FindFirstChild("Main")
             if mainGui and mainGui:FindFirstChild("StartBtn") and mainGui.StartBtn.Visible then
                 pcall(function() startDungeonRemote:InvokeServer() end)
             end
             
-            -- Fallback scanner: if the game changes names, click anything text-related that says "Start"
             for _, gui in ipairs(playerGui:GetChildren()) do
-                if gui:IsA("ScreenGui") and gui.Name ~= "PurePerformance_v17" then
+                if gui:IsA("ScreenGui") and gui.Name ~= "PurePerformance_v18" then
                     for _, element in ipairs(gui:GetDescendants()) do
                         if element:IsA("TextButton") and element.Visible and (string.find(string.lower(element.Text), "start") or string.find(string.lower(element.Text), "ready")) then
                             pcall(function() startDungeonRemote:InvokeServer() end)
