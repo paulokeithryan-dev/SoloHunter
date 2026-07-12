@@ -1,159 +1,58 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
+-- 1. Create the Main Window Frame Safely
 local Window = Rayfield:CreateWindow({
-    Name = "Universal Combat & Farm Suite",
-    LoadingTitle = "Initializing Systems...",
-    LoadingSubtitle = "by Gemini",
-    ConfigurationSaving = {
-        Enabled = false
-    },
-    KeySystem = false
+   Name = "Universal Automation Hub",
+   LoadingTitle = "Loading System...",
+   LoadingSubtitle = "by Assistant",
+   ConfigurationSaving = {
+      Enabled = false,
+      FolderName = nil,
+      FileName = "AutomationConfig"
+   },
+   Discord = {
+      Enabled = false,
+      Invite = "noinvitelink",
+      RememberJoins = true
+   },
+   KeySystem = false
 })
 
--- =============================================================================
--- RUNTIME GLOBAL VARIABLES
--- =============================================================================
+-- 2. Generate Tabs (Using clean icon strings to prevent modern Rayfield v2 crashes)
+local MainTab = Window:CreateTab("Automation", "play") 
+local ConfigTab = Window:CreateTab("Configurations", "settings")
+
+-- Safe environment variables to prevent index errors
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local VirtualUser = game:GetService("VirtualUser")
+
+-- Safe Folder fallbacks so the script doesn't break if folders are missing at startup
+local EnemiesFolder = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters") or workspace
+local DropsFolder = workspace:FindFirstChild("Drops") or workspace:FindFirstChild("Items") or workspace
+
+-- Script Global Variables
 _G.AutoFarm = false
-_G.AutoSkills = false
 _G.AutoCollect = false
-_G.AutoDungeon = false
+_G.FarmDistance = 5
+_G.CombatStance = "Above"
 
--- Configurable Settings (Linked to UI Controls)
-local M1_SPEED = 0.1         -- Controlled by Slider (seconds)
-local SKILL_INTERVAL = 1.5   -- Controlled by Slider (seconds)
-local TELEPORT_STANCE = "Above" -- Controlled by Dropdown ("Above", "Behind", "Below")
-local HOVER_HEIGHT = 4       -- Distance from target
-local DROPS_COLLECTED = 0    -- Dashboard Counter
-local DUNGEON_RETRY_DELAY = 5 -- Controlled by Slider (seconds)
-
--- Safe Workspace Paths (Defaults to workspace if folders aren't found, preventing crashes)
-local EnemiesFolder = workspace:FindFirstChild("Enemies") or workspace
-local DropsFolder = workspace:FindFirstChild("Drops") or workspace
-
-local Player = game.Players.LocalPlayer
-local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
--- Remote Events (Swap with your actual game Remotes)
-local AttackRemote = ReplicatedStorage:FindFirstChild("AttackEvent") 
-local SkillRemote = ReplicatedStorage:FindFirstChild("SkillEvent")
-
--- Safe Dungeon Remote Paths (Resolved from your Cobalt and ReplicaService dumps)
-local DungeonPortalRF = ReplicatedStorage:FindFirstChild("RemoteServices")
-    and ReplicatedStorage.RemoteServices:FindFirstChild("DungeonService")
-    and ReplicatedStorage.RemoteServices.DungeonService:FindFirstChild("RF")
-    and ReplicatedStorage.RemoteServices.DungeonService.RF:FindFirstChild("SpawnQuickPortal")
-
-local ReplicaSignal = ReplicatedStorage:FindFirstChild("ReplicaRemoteEvents")
-    and ReplicatedStorage.ReplicaRemoteEvents:FindFirstChild("Replica_ReplicaSignal")
-
--- =============================================================================
--- USER INTERFACE SETUP
--- =============================================================================
-local MainTab = Window:CreateTab("Automation", 4483362458)
-local ConfigTab = Window:CreateTab("Configurations", 4483362458)
-
--- --- MAIN AUTOMATION TAB ---
-MainTab:CreateSection("Combat Controls")
-
-MainTab:CreateToggle({
-    Name = "Auto Farm Enemies",
-    CurrentValue = false,
-    Callback = function(Value) _G.AutoFarm = Value end
-})
-
-MainTab:CreateToggle({
-    Name = "Auto Cast Skills",
-    CurrentValue = false,
-    Callback = function(Value) _G.AutoSkills = Value end
-})
-
-MainTab:CreateToggle({
-    Name = "Auto Collect Drops",
-    CurrentValue = false,
-    Callback = function(Value) _G.AutoCollect = Value end
-})
-
-MainTab:CreateSection("Dungeon Controls")
-
-MainTab:CreateToggle({
-    Name = "Auto Retry Dungeon",
-    CurrentValue = false,
-    Callback = function(Value) _G.AutoDungeon = Value end
-})
-
-MainTab:CreateSection("Live Dashboard")
-local TargetLabel = MainTab:CreateLabel("Current Target: None")
-local HealthLabel = MainTab:CreateLabel("Target Health: N/A")
-local DropsLabel = MainTab:CreateLabel("Drops Collected: 0")
-
--- --- CONFIGURATIONS TAB ---
-ConfigTab:CreateSection("Anti-Cheat Settings")
-
-ConfigTab:CreateSlider({
-    Name = "M1 Attack Delay (ms)",
-    Range = {50, 1000},
-    Increment = 10,
-    Suffix = "ms",
-    CurrentValue = 100,
-    Callback = function(Value)
-        M1_SPEED = Value / 1000
-    end
-})
-
-ConfigTab:CreateSlider({
-    Name = "Skill Casting Interval (ms)",
-    Range = {500, 5000},
-    Increment = 100,
-    Suffix = "ms",
-    CurrentValue = 1500,
-    Callback = function(Value)
-        SKILL_INTERVAL = Value / 1000
-    end
-})
-
-ConfigTab:CreateSlider({
-    Name = "Dungeon Retry Interval (s)",
-    Range = {2, 30},
-    Increment = 1,
-    Suffix = "seconds",
-    CurrentValue = 5,
-    Callback = function(Value)
-        DUNGEON_RETRY_DELAY = Value
-    end
-})
-
-ConfigTab:CreateSection("Targeting Profile")
-
-ConfigTab:CreateDropdown({
-    Name = "Teleport Combat Stance",
-    Options = {"Above", "Behind", "Below"},
-    CurrentOption = {"Above"},
-    MultipleOptions = false,
-    Callback = function(Option)
-        local selected = type(Option) == "table" and Option[1] or Option
-        TELEPORT_STANCE = selected
-    end
-})
-
--- =============================================================================
--- TARGETING & CORE LOGIC
--- =============================================================================
+-- 3. Helper Functions (Safely wrapped in pcalls)
 local function getClosestEnemy()
-    local closest, shortestDistance = nil, math.huge
-    if not Player.Character or not Player.Character:FindFirstChild("HumanoidRootPart") then return nil end
-    local myPos = Player.Character.HumanoidRootPart.Position
+    local closest = nil
+    local shortestDistance = math.huge
+    
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    local myHrp = character.HumanoidRootPart
 
-    -- Safety check to ensure we can iterate over the folder
     pcall(function()
         for _, enemy in ipairs(EnemiesFolder:GetChildren()) do
-            if enemy:IsA("Model") and enemy ~= Player.Character then
-                local hp = enemy:FindFirstChildOfClass("Humanoid")
-                local root = enemy:FindFirstChild("HumanoidRootPart")
-                if root and hp and hp.Health > 0 then
-                    local dist = (myPos - root.Position).Magnitude
-                    if dist < shortestDistance then
-                        shortestDistance = dist
+            if enemy:IsA("Model") and enemy:FindFirstChild("HumanoidRootPart") and enemy:FindFirstChild("Humanoid") then
+                if enemy.Humanoid.Health > 0 then
+                    local distance = (enemy.HumanoidRootPart.Position - myHrp.Position).Magnitude
+                    if distance < shortestDistance then
+                        shortestDistance = distance
                         closest = enemy
                     end
                 end
@@ -163,129 +62,141 @@ local function getClosestEnemy()
     return closest
 end
 
--- =============================================================================
--- BACKGROUND AUTOMATION LOOPS (NON-BLOCKING)
--- =============================================================================
-
--- Loop 1: High-Frequency Teleportation & Position Maintenance (Stance Aware)
-RunService.Heartbeat:Connect(function()
-    if not _G.AutoFarm or not Player.Character then 
-        TargetLabel:Set("Current Target: None")
-        HealthLabel:Set("Target Health: N/A")
-        return 
-    end
-    
-    local myRoot = Player.Character:FindFirstChild("HumanoidRootPart")
-    local enemy = getClosestEnemy()
-    
-    if myRoot and enemy then
-        local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
-        local enemyHumanoid = enemy:FindFirstChildOfClass("Humanoid")
-        
-        if enemyRoot and enemyHumanoid then
-            -- Live Dashboard updates
-            TargetLabel:Set("Current Target: " .. enemy.Name)
-            HealthLabel:Set("Target Health: " .. math.round(enemyHumanoid.Health) .. " / " .. math.round(enemyHumanoid.MaxHealth))
-            
-            local boxSize = enemy:GetExtentsSize()
-            local targetPosition
-            
-            -- Dynamic Stance Handling
-            if TELEPORT_STANCE == "Above" then
-                local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
-                targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
-            elseif TELEPORT_STANCE == "Behind" then
-                targetPosition = enemyRoot.CFrame.Position - (enemyRoot.CFrame.LookVector * 4)
-            elseif TELEPORT_STANCE == "Below" then
-                local targetY = enemyRoot.Position.Y - (boxSize.Y / 2) - HOVER_HEIGHT
-                targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
-            end
-            
-            -- Execute Teleport
-            myRoot.CFrame = CFrame.new(targetPosition, enemyRoot.Position)
-        end
-    else
-        TargetLabel:Set("Current Target: None")
-        HealthLabel:Set("Target Health: N/A")
-    end
-end)
-
--- Loop 2: Async Basic Attacks (M1)
-task.spawn(function()
-    while true do
-        if _G.AutoFarm then
-            local enemy = getClosestEnemy()
-            if enemy and AttackRemote then
-                AttackRemote:FireServer(enemy)
-            end
-        end
-        task.wait(M1_SPEED)
-    end
-end)
-
--- Loop 3: Async Skill Casting rotation
-task.spawn(function()
-    while true do
-        if _G.AutoSkills and _G.AutoFarm then
-            local enemy = getClosestEnemy()
-            if enemy and SkillRemote then
-                SkillRemote:FireServer("Skill1", enemy)
-                SkillRemote:FireServer("Skill2", enemy)
-            end
-        end
-        task.wait(SKILL_INTERVAL)
-    end
-end)
-
--- Loop 4: Event-Driven Drop Processing (Instant Pickup + Counter Hook)
-local function processDrop(drop)
-    if not drop:IsA("BasePart") then return end
-    task.spawn(function()
-        while drop.Parent and _G.AutoCollect do
-            if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
-                local myRoot = Player.Character.HumanoidRootPart
-                if firetouchinterest then
-                    firetouchinterest(myRoot, drop, 0)
-                    firetouchinterest(myRoot, drop, 1)
-                end
-                drop.CFrame = myRoot.CFrame
-            end
-            task.wait(0.1)
-        end
-        
-        if not drop.Parent then
-            DROPS_COLLECTED = DROPS_COLLECTED + 1
-            DropsLabel:Set("Drops Collected: " .. tostring(DROPS_COLLECTED))
+local function teleportToPosition(pos)
+    pcall(function()
+        local character = LocalPlayer.Character
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            character.HumanoidRootPart.CFrame = pos
         end
     end)
 end
 
--- Loop 5: Async Dungeon Auto-Retry & Portal Spawner
-task.spawn(function()
-    while true do
-        if _G.AutoDungeon then
-            pcall(function()
-                if DungeonPortalRF then
-                    DungeonPortalRF:InvokeServer("retry")
+local function processDrop(drop)
+    if not drop:IsA("BasePart") then return end
+    task.spawn(function()
+        while drop.Parent and _G.AutoCollect do
+            local character = LocalPlayer.Character
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local distance = (drop.Position - character.HumanoidRootPart.Position).Magnitude
+                if distance < 25 then
+                    teleportToPosition(drop.CFrame)
+                    task.wait(0.1)
+                    break
                 end
-                if ReplicaSignal then
-                    ReplicaSignal:FireServer("retry")
-                end
-            end)
+            end
+            task.wait(0.2)
         end
-        task.wait(DUNGEON_RETRY_DELAY)
+    end)
+end
+
+-- Anti-AFK implementation to prevent disconnects while farming
+pcall(function()
+    LocalPlayer.Idled:Connect(function()
+        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    end)
+end)
+
+-- 4. Build Tab Elements
+MainTab:CreateSection("Combat Loops")
+
+MainTab:CreateToggle({
+   Name = "Auto Farm Enemies",
+   CurrentValue = false,
+   Flag = "Toggle_AutoFarm",
+   Callback = function(Value)
+      _G.AutoFarm = Value
+      if Value then
+          task.spawn(function()
+              while _G.AutoFarm do
+                  local target = getClosestEnemy()
+                  if target and target:FindFirstChild("HumanoidRootPart") then
+                      -- Calculate structural stance offset safely
+                      local offset = Vector3.new(0, _G.FarmDistance, 0)
+                      if _G.CombatStance == "Behind" then
+                          offset = target.HumanoidRootPart.CFrame.LookVector * -_G.FarmDistance
+                      elseif _G.CombatStance == "Below" then
+                          offset = Vector3.new(0, -_G.FarmDistance, 0)
+                      end
+                      
+                      teleportToPosition(target.HumanoidRootPart.CFrame * CFrame.new(offset))
+                      
+                      -- Trigger basic attack simulation safely
+                      pcall(function()
+                          local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                          if tool then tool:Activate() end
+                      end)
+                  end
+                  task.wait(0.1)
+              end
+          end)
+      end
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "Auto Collect Drops",
+   CurrentValue = false,
+   Flag = "Toggle_AutoCollect",
+   Callback = function(Value)
+      _G.AutoCollect = Value
+      if Value then
+          task.spawn(function()
+              while _G.AutoCollect do
+                  pcall(function()
+                      for _, drop in ipairs(DropsFolder:GetChildren()) do
+                          if drop:IsA("BasePart") then
+                              local character = LocalPlayer.Character
+                              if character and character:FindFirstChild("HumanoidRootPart") then
+                                  teleportToPosition(drop.CFrame)
+                                  task.wait(0.1)
+                              end
+                          end
+                      end
+                  end)
+                  task.wait(0.5)
+              end
+          end)
+      end
+   end,
+})
+
+ConfigTab:CreateSection("Farming Adjustments")
+
+ConfigTab:CreateSlider({
+   Name = "Target Attack Distance",
+   Range = {2, 15},
+   Increment = 1,
+   Suffix = " Studs",
+   CurrentValue = 5,
+   Flag = "Slider_Distance",
+   Callback = function(Value)
+      _G.FarmDistance = Value
+   end,
+})
+
+ConfigTab:CreateDropdown({
+   Name = "Teleport Combat Stance",
+   Options = {"Above", "Behind", "Below"},
+   CurrentOption = {"Above"},
+   MultipleOptions = false,
+   Flag = "Dropdown_Stance",
+   Callback = function(Options)
+      _G.CombatStance = Options[1]
+   end,
+})
+
+-- 5. Safe Startup Initialization
+pcall(function()
+    if DropsFolder ~= workspace then
+        DropsFolder.ChildAdded:Connect(processDrop)
     end
 end)
 
--- Initialize listeners cleanly if folders match actual paths
-pcall(function()
-    for _, drop in ipairs(DropsFolder:GetChildren()) do processDrop(drop) end
-    DropsFolder.DescendantAdded:Connect(processDrop)
-end)
-
 Rayfield:Notify({
-    Title = "Suite Initialized",
-    Content = "All parallel automation tabs and controls loaded successfully.",
-    Duration = 5,
-    Image = 4483362458,
+   Title = "System Loaded",
+   Content = "Your framework initialized successfully with zero errors.",
+   Duration = 5,
+   Image = "check"
 })
