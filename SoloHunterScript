@@ -1,294 +1,293 @@
--- // INITIALIZE RAYFIELD LIBRARY // --
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "Auto-Combat Suite v6",
-   LoadingTitle = "Loading Interface...",
-   LoadingSubtitle = "Powered by Rayfield",
-   ConfigurationSaving = {
-      Enabled = true,
-      FolderName = "ProjectHubConfigs",
-      FileName = "SaveData"
-   },
-   Discord = {
-      Enabled = false,
-      Invite = "noinvitelink",
-      RememberJoins = true
-   },
-   KeySystem = false
+    Name = "Universal Combat & Farm Suite",
+    LoadingTitle = "Initializing Systems...",
+    LoadingSubtitle = "by Gemini",
+    ConfigurationSaving = {
+        Enabled = false
+    },
+    KeySystem = false
 })
 
--- // SERVICES // --
-local Players = game:GetService("Players")
+-- =============================================================================
+-- STATED RUNTIME VARIABLES
+-- =============================================================================
+local _G = {
+    AutoFarm = false,
+    AutoSkills = false,
+    AutoCollect = false,
+    AutoDungeon = false -- Linked to Dungeon Toggle
+}
+
+-- Configurable Settings (Linked to UI Controls)
+local M1_SPEED = 0.1         -- Controlled by Slider (seconds)
+local SKILL_INTERVAL = 1.5   -- Controlled by Slider (seconds)
+local TELEPORT_STANCE = "Above" -- Controlled by Dropdown ("Above", "Behind", "Below")
+local HOVER_HEIGHT = 4       -- Distance from target
+local DROPS_COLLECTED = 0    -- Dashboard Counter
+local DUNGEON_RETRY_DELAY = 5 -- Controlled by Slider (seconds)
+
+-- Workspace Collections
+local EnemiesFolder = workspace:DestroyWithTagOrPath("Enemies") -- Swap with your game's enemy path
+local DropsFolder = workspace:DestroyWithTagOrPath("Drops")     -- Swap with your game's drops path
+
+local Player = game.Players.LocalPlayer
 local RunService = game:GetService("RunService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local player = Players.LocalPlayer
+-- Remote Events (Swap with your actual game Remotes)
+local AttackRemote = ReplicatedStorage:FindFirstChild("AttackEvent") 
+local SkillRemote = ReplicatedStorage:FindFirstChild("SkillEvent")
 
--- // EXPLOIT REMOTES // --
-local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
-local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
-local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
-local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
-local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
+-- Safe Dungeon Remote Paths (Resolved from your Cobalt and ReplicaService dumps)
+local DungeonPortalRF = ReplicatedStorage:FindFirstChild("RemoteServices")
+    and ReplicatedStorage.RemoteServices:FindFirstChild("DungeonService")
+    and ReplicatedStorage.RemoteServices.DungeonService:FindFirstChild("RF")
+    and ReplicatedStorage.RemoteServices.DungeonService.RF:FindFirstChild("SpawnQuickPortal")
 
--- // STATE FLAGS & CONFIG // --
-local systemEnabled = false
-local autoEquipEnabled = true 
-local autoCollectEnabled = true  
-local autoPotionEnabled = true   
-local autoDungeonEnabled = true  
+local ReplicaSignal = ReplicatedStorage:FindFirstChild("ReplicaRemoteEvents")
+    and ReplicatedStorage.ReplicaRemoteEvents:FindFirstChild("Replica_ReplicaSignal")
 
-local HOVER_HEIGHT = 4         
-local MAX_DETECTION_DIST = 300  
-local M1_SPEED = 0.1            
-local SKILL_INTERVAL = 1.5      
-
--- // CREATE TABS // --
+-- =============================================================================
+-- USER INTERFACE SETUP
+-- =============================================================================
 local MainTab = Window:CreateTab("Automation", 4483362458)
 local ConfigTab = Window:CreateTab("Configurations", 4483362458)
 
--- // UI ELEMENTS: MAIN AUTOMATION // --
+-- --- MAIN AUTOMATION TAB ---
+MainTab:CreateSection("Combat Controls")
+
 MainTab:CreateToggle({
-   Name = "Master System Enable",
-   CurrentValue = systemEnabled,
-   Flag = "MasterSystem",
-   Callback = function(Value)
-      systemEnabled = Value
-   end,
+    Name = "Auto Farm Enemies",
+    CurrentValue = false,
+    Callback = function(Value) _G.AutoFarm = Value end
 })
 
 MainTab:CreateToggle({
-   Name = "Auto-Equip Weapon",
-   CurrentValue = autoEquipEnabled,
-   Flag = "AutoEquip",
-   Callback = function(Value)
-      autoEquipEnabled = Value
-   end,
+    Name = "Auto Cast Skills",
+    CurrentValue = false,
+    Callback = function(Value) _G.AutoSkills = Value end
 })
 
 MainTab:CreateToggle({
-   Name = "Auto-Collect Drops",
-   CurrentValue = autoCollectEnabled,
-   Flag = "AutoCollect",
-   Callback = function(Value)
-      autoCollectEnabled = Value
-   end,
+    Name = "Auto Collect Drops",
+    CurrentValue = false,
+    Callback = function(Value) _G.AutoCollect = Value end
 })
+
+MainTab:CreateSection("Dungeon Controls")
 
 MainTab:CreateToggle({
-   Name = "Auto-Potion (Heal)",
-   CurrentValue = autoPotionEnabled,
-   Flag = "AutoPotion",
-   Callback = function(Value)
-      autoPotionEnabled = Value
-   end,
+    Name = "Auto Retry Dungeon",
+    CurrentValue = false,
+    Callback = function(Value) _G.AutoDungeon = Value end
 })
 
-MainTab:CreateToggle({
-   Name = "Auto-Dungeon Progression",
-   CurrentValue = autoDungeonEnabled,
-   Flag = "AutoDungeon",
-   Callback = function(Value)
-      autoDungeonEnabled = Value
-   end,
-})
+MainTab:CreateSection("Live Dashboard")
+local TargetLabel = MainTab:CreateLabel("Current Target: None")
+local HealthLabel = MainTab:CreateLabel("Target Health: N/A")
+local DropsLabel = MainTab:CreateLabel("Drops Collected: 0")
 
--- // UI ELEMENTS: CONFIGURATIONS // --
+-- --- CONFIGURATIONS TAB ---
+ConfigTab:CreateSection("Anti-Cheat Settings")
+
 ConfigTab:CreateSlider({
-   Name = "Hover Height Above Target",
-   Range = {0, 30},
-   Increment = 1,
-   Suffix = " Studs",
-   CurrentValue = HOVER_HEIGHT,
-   Flag = "HoverHeight",
-   Callback = function(Value)
-      HOVER_HEIGHT = Value
-   end,
+    Name = "M1 Attack Delay (ms)",
+    Range = {50, 1000},
+    Increment = 10,
+    Suffix = "ms",
+    CurrentValue = 100,
+    Callback = function(Value)
+        M1_SPEED = Value / 1000
+    end
 })
 
-
--- // ========================================== // --
--- //          CORE COMBAT & BACKGROUND LOOPS    // --
--- // ========================================== // --
-
-local function isEnemy(model)
-    if model:IsA("Model") and model ~= player.Character then
-        local humanoid = model:FindFirstChildOfClass("Humanoid")
-        local root = model:FindFirstChild("HumanoidRootPart")
-        if humanoid and root and humanoid.Health > 0 then
-            return true
-        end
+ConfigTab:CreateSlider({
+    Name = "Skill Casting Interval (ms)",
+    Range = {500, 5000},
+    Increment = 100,
+    Suffix = "ms",
+    CurrentValue = 1500,
+    Callback = function(Value)
+        SKILL_INTERVAL = Value / 1000
     end
-    return false
-end
+})
 
+ConfigTab:CreateSlider({
+    Name = "Dungeon Retry Interval (s)",
+    Range = {2, 30},
+    Increment = 1,
+    Suffix = "seconds",
+    CurrentValue = 5,
+    Callback = function(Value)
+        DUNGEON_RETRY_DELAY = Value
+    end
+})
+
+ConfigTab:CreateSection("Targeting Profile")
+
+ConfigTab:CreateDropdown({
+    Name = "Teleport Combat Stance",
+    Options = {"Above", "Behind", "Below"},
+    CurrentOption = {"Above"},
+    MultipleOptions = false,
+    Callback = function(Option)
+        local selected = type(Option) == "table" and Option[1] or Option
+        TELEPORT_STANCE = selected
+    end
+})
+
+-- =============================================================================
+-- TARGETING & CORE LOGIC
+-- =============================================================================
 local function getClosestEnemy()
-    local character = player.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
-    
-    local playerRoot = character.HumanoidRootPart
-    local closestEnemy = nil
-    local shortestDistance = MAX_DETECTION_DIST
+    local closest, shortestDistance = nil, math.huge
+    if not Player.Character or not Player.Character:FindFirstChild("HumanoidRootPart") then return nil end
+    local myPos = Player.Character.HumanoidRootPart.Position
 
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if isEnemy(obj) then
-            local enemyRoot = obj.HumanoidRootPart
-            local distance = (playerRoot.Position - enemyRoot.Position).Magnitude
-            if distance < shortestDistance then
-                shortestDistance = distance
-                closestEnemy = obj
+    for _, enemy in ipairs(EnemiesFolder:GetChildren()) do
+        local hp = enemy:FindFirstChildOfClass("Humanoid")
+        local root = enemy:FindFirstChild("HumanoidRootPart")
+        if root and hp and hp.Health > 0 then
+            local dist = (myPos - root.Position).Magnitude
+            if dist < shortestDistance then
+                shortestDistance = dist
+                closest = enemy
             end
         end
     end
-    return closestEnemy
+    return closest
 end
 
--- Positioning & Aiming
-local targetEnemy = nil
+-- =============================================================================
+-- BACKGROUND AUTOMATION LOOPS (NON-BLOCKING)
+-- =============================================================================
+
+-- Loop 1: High-Frequency Teleportation & Position Maintenance (Stance Aware)
 RunService.Heartbeat:Connect(function()
-    if not systemEnabled then 
-        targetEnemy = nil
+    if not _G.AutoFarm or not Player.Character then 
+        TargetLabel:Set("Current Target: None")
+        HealthLabel:Set("Target Health: N/A")
         return 
     end
-
-    local character = player.Character
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     
-    if not root or (humanoid and humanoid.Health <= 0) then return end
-    targetEnemy = getClosestEnemy()
+    local myRoot = Player.Character:FindFirstChild("HumanoidRootPart")
+    local enemy = getClosestEnemy()
     
-    if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") then
-        local enemyRoot = targetEnemy.HumanoidRootPart
-        local _, boxSize = targetEnemy:GetBoundingBox()
+    if myRoot and enemy then
+        local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
+        local enemyHumanoid = enemy:FindFirstChildOfClass("Humanoid")
         
-        local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
-        local targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
-        
-        root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
-        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        if enemyRoot and enemyHumanoid then
+            -- Live Dashboard updates
+            TargetLabel:Set("Current Target: " .. enemy.Name)
+            HealthLabel:Set("Target Health: " .. math.round(enemyHumanoid.Health) .. " / " .. math.round(enemyHumanoid.MaxHealth))
+            
+            local boxSize = enemy:GetExtentsSize()
+            local targetPosition
+            
+            -- Dynamic Stance Handling
+            if TELEPORT_STANCE == "Above" then
+                local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
+                targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
+            elseif TELEPORT_STANCE == "Behind" then
+                -- Positions character 4 studs directly behind the enemy face direction
+                targetPosition = enemyRoot.CFrame.Position - (enemyRoot.CFrame.LookVector * 4)
+            elseif TELEPORT_STANCE == "Below" then
+                -- Clips character right below the enemy hitbox floor
+                local targetY = enemyRoot.Position.Y - (boxSize.Y / 2) - HOVER_HEIGHT
+                targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
+            end
+            
+            -- Execute Teleport
+            myRoot.CFrame = CFrame.new(targetPosition, enemyRoot.Position)
+        end
+    else
+        TargetLabel:Set("Current Target: None")
+        HealthLabel:Set("Target Health: N/A")
     end
 end)
 
--- Auto-Potion Loop
+-- Loop 2: Async Basic Attacks (M1)
 task.spawn(function()
     while true do
-        task.wait(0.3)
-        if systemEnabled and autoPotionEnabled then
-            local character = player.Character
-            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            
-            if humanoid and humanoid.Health > 0 then
-                local hpPercent = humanoid.Health / humanoid.MaxHealth
-                if hpPercent <= 0.5 then
-                    pcall(function()
-                        healRemote:InvokeServer()
-                    end)
-                    task.wait(1.5) 
-                end
+        if _G.AutoFarm then
+            local enemy = getClosestEnemy()
+            if enemy and AttackRemote then
+                AttackRemote:FireServer(enemy) -- Pass the enemy target data inside the remote payload
             end
         end
+        task.wait(M1_SPEED) -- Dynamic yielding tied directly to your anti-cheat slider
     end
 end)
 
--- Real-Time Drop Collection
-local function processDrop(obj)
-    if not systemEnabled or not autoCollectEnabled or not obj then return end
-    
-    local nameLower = obj.Name:lower()
-    local parentNameLower = (obj.Parent and obj.Parent.Name:lower()) or ""
-    
-    local isDrop = nameLower:find("drop") 
-        or nameLower:find("loot") 
-        or nameLower:find("item")
-        or parentNameLower:find("drop") 
-        or parentNameLower:find("loot")
-        or obj:IsA("ProximityPrompt")
-        or obj:IsA("TouchTransmitter")
-        
-    if isDrop then
-        task.spawn(function()
-            pcall(function() dropRemote:InvokeServer(obj) end)
-            if obj.Parent and obj.Parent:IsA("Model") then
-                pcall(function() dropRemote:InvokeServer(obj.Parent) end)
+-- Loop 3: Async Skill Casting rotation
+task.spawn(function()
+    while true do
+        if _G.AutoSkills and _G.AutoFarm then
+            local enemy = getClosestEnemy()
+            if enemy and SkillRemote then
+                SkillRemote:FireServer("Skill1", enemy)
+                SkillRemote:FireServer("Skill2", enemy)
             end
-        end)
+        end
+        task.wait(SKILL_INTERVAL) -- Dynamic yielding tied directly to your interval slider
     end
+end)
+
+-- Loop 4: Event-Driven Drop Processing (Instant Pickup + Counter Hook)
+local function processDrop(drop)
+    if not drop:IsA("BasePart") then return end
+    task.spawn(function()
+        while drop.Parent and _G.AutoCollect do
+            if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+                local myRoot = Player.Character.HumanoidRootPart
+                -- Instantly fire touch interest if engine uses standard parts, or move to character
+                firetouchinterest(myRoot, drop, 0)
+                firetouchinterest(myRoot, drop, 1)
+                
+                -- Alternate physics backup: Pull drop directly to character frame
+                drop.CFrame = myRoot.CFrame
+            end
+            task.wait(0.1)
+        end
+        
+        -- If the drop is gone (collected successfully), update Dashboard tally
+        if not drop.Parent then
+            DROPS_COLLECTED = DROPS_COLLECTED + 1
+            DropsLabel:Set("Drops Collected: " .. tostring(DROPS_COLLECTED))
+        end
+    end)
 end
 
-workspace.DescendantAdded:Connect(processDrop)
-
+-- Loop 5: Async Dungeon Auto-Retry & Portal Spawner
 task.spawn(function()
     while true do
-        task.wait(0.5)
-        if systemEnabled and autoCollectEnabled then
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                processDrop(obj)
-            end
-        end
-    end
-end)
-
--- Auto Weapon Equip
-task.spawn(function()
-    while true do
-        task.wait(0.5)
-        if systemEnabled and autoEquipEnabled then
-            local character = player.Character
-            if character and character:FindFirstChildOfClass("Humanoid") and character.Humanoid.Health > 0 then
-                local holdingTool = character:FindFirstChildOfClass("Tool")
-                if not holdingTool then
-                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
-                    task.wait(0.02)
-                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+        if _G.AutoDungeon then
+            pcall(function()
+                -- Primary: Invoke the RemoteFunction intercepted by Cobalt
+                if DungeonPortalRF then
+                    DungeonPortalRF:InvokeServer("retry")
                 end
-            end
-        end
-    end
-end)
-
--- Upgraded Attack Loop
-task.spawn(function()
-    while true do
-        task.wait(M1_SPEED)
-        if systemEnabled and targetEnemy then
-            task.spawn(function()
-                pcall(function() useWeaponRemote:InvokeServer() end)
+                
+                -- Secondary Backup: Fallback to the ReplicaService layer if direct infrastructure changes
+                if ReplicaSignal then
+                    ReplicaSignal:FireServer("retry")
+                end
             end)
-            
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-            task.wait(0.01)
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
         end
+        task.wait(DUNGEON_RETRY_DELAY)
     end
 end)
 
--- Auto-Dungeon Loop
-task.spawn(function()
-    while true do
-        task.wait(1.5)
-        if systemEnabled and autoDungeonEnabled then
-            task.spawn(pcall, function() startDungeonRemote:InvokeServer() end)
-            task.spawn(pcall, function() enterGateRemote:InvokeServer() end)
-        end
-    end
-end)
+-- Initialize listeners for items already on screen + upcoming drops
+for _, drop in ipairs(DropsFolder:GetChildren()) do processDrop(drop) end
+DropsFolder.DescendantAdded:Connect(processDrop)
 
--- Auto Skill Cast
-local skills = {Enum.KeyCode.F, Enum.KeyCode.R, Enum.KeyCode.C}
-task.spawn(function()
-    while true do
-        for _, key in ipairs(skills) do
-            if systemEnabled and targetEnemy then
-                VirtualInputManager:SendKeyEvent(true, key, false, game)
-                task.wait(0.05)
-                VirtualInputManager:SendKeyEvent(false, key, false, game)
-                task.wait(SKILL_INTERVAL)
-            else
-                task.wait(0.5)
-            end
-        end
-    end
-end)
+Rayfield:Notify({
+    Title = "Suite Initialized",
+    Content = "All parallel automation channels operational.",
+    Duration = 5,
+    Image = 4483362458,
+})
