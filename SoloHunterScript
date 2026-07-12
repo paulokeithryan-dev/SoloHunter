@@ -1,12 +1,32 @@
+-- // INITIALIZE RAYFIELD LIBRARY // --
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Auto-Combat Suite v6",
+   LoadingTitle = "Loading Interface...",
+   LoadingSubtitle = "Powered by Rayfield",
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = "ProjectHubConfigs",
+      FileName = "SaveData"
+   },
+   Discord = {
+      Enabled = false,
+      Invite = "noinvitelink",
+      RememberJoins = true
+   },
+   KeySystem = false
+})
+
+-- // SERVICES // --
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
 
--- // EXPLOIT REMOTES (Updated with your Cobalt Dumps) // --
+-- // EXPLOIT REMOTES // --
 local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
@@ -18,173 +38,81 @@ local systemEnabled = false
 local autoEquipEnabled = true 
 local autoCollectEnabled = true  
 local autoPotionEnabled = true   
-local autoDungeonEnabled = true  -- New Feature
+local autoDungeonEnabled = true  
 
-local HOVER_HEIGHT = 4        
+local HOVER_HEIGHT = 4         
 local MAX_DETECTION_DIST = 300  
 local M1_SPEED = 0.1            
 local SKILL_INTERVAL = 1.5      
 
--- // USER INTERFACE CREATION // --
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoCombatUI_v6"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = playerGui
+-- // CREATE TABS // --
+local MainTab = Window:CreateTab("Automation", 4483362458)
+local ConfigTab = Window:CreateTab("Configurations", 4483362458)
 
--- Main Container Frame (Height expanded to 245 to fit the Auto-Dungeon toggle)
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 190, 0, 245)
-mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
-mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-mainFrame.BorderSizePixel = 0
-mainFrame.Active = true
-mainFrame.Draggable = false 
-mainFrame.Parent = screenGui
+-- // UI ELEMENTS: MAIN AUTOMATION // --
+MainTab:CreateToggle({
+   Name = "Master System Enable",
+   CurrentValue = systemEnabled,
+   Flag = "MasterSystem",
+   Callback = function(Value)
+      systemEnabled = Value
+   end,
+})
 
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 8)
-uiCorner.Parent = mainFrame
+MainTab:CreateToggle({
+   Name = "Auto-Equip Weapon",
+   CurrentValue = autoEquipEnabled,
+   Flag = "AutoEquip",
+   Callback = function(Value)
+      autoEquipEnabled = Value
+   end,
+})
 
--- Floating Icon
-local floatingIcon = Instance.new("TextButton")
-floatingIcon.Name = "FloatingIcon"
-floatingIcon.Size = UDim2.new(0, 50, 0, 50)
-floatingIcon.Position = UDim2.new(0.1, 0, 0.1, 0) 
-floatingIcon.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-floatingIcon.Text = "MENU"
-floatingIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
-floatingIcon.Font = Enum.Font.SourceSansBold
-floatingIcon.TextSize = 14
-floatingIcon.Visible = false
-floatingIcon.Parent = screenGui
+MainTab:CreateToggle({
+   Name = "Auto-Collect Drops",
+   CurrentValue = autoCollectEnabled,
+   Flag = "AutoCollect",
+   Callback = function(Value)
+      autoCollectEnabled = Value
+   end,
+})
 
-local iconCorner = Instance.new("UICorner")
-iconCorner.CornerRadius = UDim.new(0, 25) 
-iconCorner.Parent = floatingIcon
+MainTab:CreateToggle({
+   Name = "Auto-Potion (Heal)",
+   CurrentValue = autoPotionEnabled,
+   Flag = "AutoPotion",
+   Callback = function(Value)
+      autoPotionEnabled = Value
+   end,
+})
 
-local iconStroke = Instance.new("UIStroke")
-iconStroke.Color = Color3.fromRGB(140, 60, 200)
-iconStroke.Thickness = 2
-iconStroke.Parent = floatingIcon
+MainTab:CreateToggle({
+   Name = "Auto-Dungeon Progression",
+   CurrentValue = autoDungeonEnabled,
+   Flag = "AutoDungeon",
+   Callback = function(Value)
+      autoDungeonEnabled = Value
+   end,
+})
 
--- Helper function for standard buttons
-local function createButton(name, text, pos, size, color)
-    local btn = Instance.new("TextButton")
-    btn.Name = name
-    btn.Size = size
-    btn.Position = pos
-    btn.BackgroundColor3 = color
-    btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.SourceSansBold
-    btn.TextSize = 14
-    btn.Parent = mainFrame
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
-    return btn
-end
+-- // UI ELEMENTS: CONFIGURATIONS // --
+ConfigTab:CreateSlider({
+   Name = "Hover Height Above Target",
+   Range = {0, 30},
+   Increment = 1,
+   Suffix = " Studs",
+   CurrentValue = HOVER_HEIGHT,
+   Flag = "HoverHeight",
+   Callback = function(Value)
+      HOVER_HEIGHT = Value
+   end,
+})
 
--- UI Buttons
-local toggleButton = createButton("ToggleBtn", "SYSTEM: OFF", UDim2.new(0, 5, 0, 5), UDim2.new(1, -45, 0, 35), Color3.fromRGB(200, 60, 60))
-local minimizeButton = createButton("MinimizeBtn", "—", UDim2.new(1, -35, 0, 5), UDim2.new(0, 30, 0, 35), Color3.fromRGB(50, 50, 50))
 
-local minusBtn = Instance.new("TextButton")
-minusBtn.Size = UDim2.new(0, 30, 0, 35)
-minusBtn.Position = UDim2.new(0, 5, 0, 45)
-minusBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-minusBtn.Text = "-"
-minusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-minusBtn.Font = Enum.Font.SourceSansBold
-minusBtn.TextSize = 18
-minusBtn.Parent = mainFrame
+-- // ========================================== // --
+-- //          CORE COMBAT & BACKGROUND LOOPS    // --
+-- // ========================================== // --
 
-local btnCorner2 = Instance.new("UICorner")
-btnCorner2.CornerRadius = UDim.new(0, 6)
-btnCorner2.Parent = minusBtn
-
-local heightLabel = Instance.new("TextLabel")
-heightLabel.Size = UDim2.new(1, -80, 0, 35)
-heightLabel.Position = UDim2.new(0, 40, 0, 45)
-heightLabel.BackgroundTransparency = 1
-heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
-heightLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-heightLabel.Font = Enum.Font.SourceSansBold
-heightLabel.TextSize = 14
-heightLabel.Parent = mainFrame
-
-local plusBtn = Instance.new("TextButton")
-plusBtn.Size = UDim2.new(0, 30, 0, 35)
-plusBtn.Position = UDim2.new(1, -35, 0, 45)
-plusBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-plusBtn.Text = "+"
-plusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-plusBtn.Font = Enum.Font.SourceSansBold
-plusBtn.TextSize = 18
-plusBtn.Parent = mainFrame
-
-local btnCorner3 = Instance.new("UICorner")
-btnCorner3.CornerRadius = UDim.new(0, 6)
-btnCorner3.Parent = plusBtn
-
-local equipButton = createButton("EquipBtn", "Auto-Equip: ON", UDim2.new(0, 5, 0, 85), UDim2.new(1, -10, 0, 35), Color3.fromRGB(60, 150, 200))
-local collectButton = createButton("CollectBtn", "Auto-Collect: ON", UDim2.new(0, 5, 0, 125), UDim2.new(1, -10, 0, 35), Color3.fromRGB(140, 60, 200))
-local potionButton = createButton("PotionBtn", "Auto-Potion: ON", UDim2.new(0, 5, 0, 165), UDim2.new(1, -10, 0, 35), Color3.fromRGB(210, 130, 40))
-local dungeonButton = createButton("DungeonBtn", "Auto-Dungeon: ON", UDim2.new(0, 5, 0, 205), UDim2.new(1, -10, 0, 35), Color3.fromRGB(220, 60, 100))
-
--- // UI INTERACTION LOGIC // --
-minimizeButton.MouseButton1Click:Connect(function()
-    mainFrame.Visible = false
-    floatingIcon.Visible = true
-end)
-
-floatingIcon.MouseButton1Click:Connect(function()
-    floatingIcon.Visible = false
-    mainFrame.Visible = true
-end)
-
-toggleButton.MouseButton1Click:Connect(function()
-    systemEnabled = not systemEnabled
-    toggleButton.Text = systemEnabled and "SYSTEM: ON" or "SYSTEM: OFF"
-    toggleButton.BackgroundColor3 = systemEnabled and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(200, 60, 60)
-end)
-
-equipButton.MouseButton1Click:Connect(function()
-    autoEquipEnabled = not autoEquipEnabled
-    equipButton.Text = autoEquipEnabled and "Auto-Equip: ON" or "Auto-Equip: OFF"
-    equipButton.BackgroundColor3 = autoEquipEnabled and Color3.fromRGB(60, 150, 200) or Color3.fromRGB(100, 100, 100)
-end)
-
-collectButton.MouseButton1Click:Connect(function()
-    autoCollectEnabled = not autoCollectEnabled
-    collectButton.Text = autoCollectEnabled and "Auto-Collect: ON" or "Auto-Collect: OFF"
-    collectButton.BackgroundColor3 = autoCollectEnabled and Color3.fromRGB(140, 60, 200) or Color3.fromRGB(100, 100, 100)
-end)
-
-potionButton.MouseButton1Click:Connect(function()
-    autoPotionEnabled = not autoPotionEnabled
-    potionButton.Text = autoPotionEnabled and "Auto-Potion: ON" or "Auto-Potion: OFF"
-    potionButton.BackgroundColor3 = autoPotionEnabled and Color3.fromRGB(210, 130, 40) or Color3.fromRGB(100, 100, 100)
-end)
-
-dungeonButton.MouseButton1Click:Connect(function()
-    autoDungeonEnabled = not autoDungeonEnabled
-    dungeonButton.Text = autoDungeonEnabled and "Auto-Dungeon: ON" or "Auto-Dungeon: OFF"
-    dungeonButton.BackgroundColor3 = autoDungeonEnabled and Color3.fromRGB(220, 60, 100) or Color3.fromRGB(100, 100, 100)
-end)
-
-minusBtn.MouseButton1Click:Connect(function()
-    HOVER_HEIGHT = math.clamp(HOVER_HEIGHT - 1, 0, 30)
-    heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
-end)
-
-plusBtn.MouseButton1Click:Connect(function()
-    HOVER_HEIGHT = math.clamp(HOVER_HEIGHT + 1, 0, 30)
-    heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
-end)
-
--- // COMBAT & TARGETING SYSTEM // --
 local function isEnemy(model)
     if model:IsA("Model") and model ~= player.Character then
         local humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -217,9 +145,8 @@ local function getClosestEnemy()
     return closestEnemy
 end
 
--- // POSITIONING & AIMING LOOP // --
+-- Positioning & Aiming
 local targetEnemy = nil
-
 RunService.Heartbeat:Connect(function()
     if not systemEnabled then 
         targetEnemy = nil
@@ -231,7 +158,6 @@ RunService.Heartbeat:Connect(function()
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     
     if not root or (humanoid and humanoid.Health <= 0) then return end
-    
     targetEnemy = getClosestEnemy()
     
     if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") then
@@ -246,7 +172,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- // AUTO-POTION LOOP // --
+-- Auto-Potion Loop
 task.spawn(function()
     while true do
         task.wait(0.3)
@@ -267,7 +193,7 @@ task.spawn(function()
     end
 end)
 
--- // REAL-TIME DROP COLLECTION // --
+-- Real-Time Drop Collection
 local function processDrop(obj)
     if not systemEnabled or not autoCollectEnabled or not obj then return end
     
@@ -305,7 +231,7 @@ task.spawn(function()
     end
 end)
 
--- // AUTO WEAPON EQUIP LOOP // --
+-- Auto Weapon Equip
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -323,13 +249,11 @@ task.spawn(function()
     end
 end)
 
--- // UPGRADED DIRECT REMOTE ATTACK LOOP // --
+-- Upgraded Attack Loop
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
         if systemEnabled and targetEnemy then
-            -- Double-Engine Hybrid Attack: Fires the Direct Server Remote AND simulates a client click
-            -- This bypasses client window focus locks and hits with perfect accuracy
             task.spawn(function()
                 pcall(function() useWeaponRemote:InvokeServer() end)
             end)
@@ -341,21 +265,19 @@ task.spawn(function()
     end
 end)
 
--- // AUTO-DUNGEON & GATE AUTO-PROGRESSION // --
+-- Auto-Dungeon Loop
 task.spawn(function()
     while true do
-        task.wait(1.5) -- Throttled perfectly to prevent triggering server spam limits
+        task.wait(1.5)
         if systemEnabled and autoDungeonEnabled then
-            -- Safely tries to auto-start dungeons or accept entry gates if prompts appear
             task.spawn(pcall, function() startDungeonRemote:InvokeServer() end)
             task.spawn(pcall, function() enterGateRemote:InvokeServer() end)
         end
     end
 end)
 
--- // AUTO SKILL CAST LOOP // --
+-- Auto Skill Cast
 local skills = {Enum.KeyCode.F, Enum.KeyCode.R, Enum.KeyCode.C}
-
 task.spawn(function()
     while true do
         for _, key in ipairs(skills) do
@@ -363,7 +285,6 @@ task.spawn(function()
                 VirtualInputManager:SendKeyEvent(true, key, false, game)
                 task.wait(0.05)
                 VirtualInputManager:SendKeyEvent(false, key, false, game)
-                
                 task.wait(SKILL_INTERVAL)
             else
                 task.wait(0.5)
