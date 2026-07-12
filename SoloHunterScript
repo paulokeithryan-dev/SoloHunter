@@ -32,13 +32,13 @@ local processedDrops = {}
 
 -- // AUTOMATIC LAYOUT INTERFACE DESIGN // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "SleekCombatHub_v11"
+screenGui.Name = "SleekCombatHub_v12"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 420, 0, 250)
-mainFrame.Position = UDim2.new(0.5, -210, 0.5, -125) -- Center of screen layout
+mainFrame.Position = UDim2.new(0.5, -210, 0.5, -125) 
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
@@ -60,7 +60,6 @@ local sidebarCorner = Instance.new("UICorner")
 sidebarCorner.CornerRadius = UDim.new(0, 8)
 sidebarCorner.Parent = sidebarFrame
 
--- Sidebar Layout Engine (Prevents clipping/omitting elements)
 local sidebarList = Instance.new("UIListLayout")
 sidebarList.Padding = UDim.new(0, 6)
 sidebarList.HorizontalAlignment = Enum.HorizontalAlignment.Center
@@ -130,7 +129,7 @@ local function createSidebarButton(name, text, color)
 end
 
 local toggleButton = createSidebarButton("ToggleBtn", "SYSTEM: OFF", Color3.fromRGB(200, 60, 60))
-toggleButton.Size = UDim2.new(1, -16, 0, 32) -- Make main toggle slightly taller
+toggleButton.Size = UDim2.new(1, -16, 0, 32)
 
 -- Height Adjustment Row
 local heightContainer = Instance.new("Frame")
@@ -269,7 +268,8 @@ end)
 potionButton.MouseButton1Click:Connect(function()
     autoPotionEnabled = not autoPotionEnabled
     potionButton.Text = autoPotionEnabled and "Auto-Potion: ON" or "Auto-Potion: OFF"
-    potionButton.BackgroundColor3 = autoPotionEnabled elder and Color3.fromRGB(210, 130, 40) or Color3.fromRGB(80, 80, 80)
+    -- FIXED: Removed typo error 'elder'
+    potionButton.BackgroundColor3 = autoPotionEnabled and Color3.fromRGB(210, 130, 40) or Color3.fromRGB(80, 80, 80)
 end)
 
 dungeonButton.MouseButton1Click:Connect(function()
@@ -342,9 +342,9 @@ local function refreshPortalList()
 end
 refreshPortalsBtn.MouseButton1Click:Connect(refreshPortalList)
 
--- // COMBAT TARGET ENGINE // --
+-- // OPTIMIZED COMBAT TARGET ENGINE // --
 local function isEnemy(model)
-    if model:IsA("Model") and model ~= player.Character then
+    if model and model:IsA("Model") and model ~= player.Character then
         local humanoid = model:FindFirstChildOfClass("Humanoid")
         local root = model:FindFirstChild("HumanoidRootPart")
         if humanoid and root and humanoid.Health > 0 then return true end
@@ -360,7 +360,8 @@ local function getClosestEnemy()
     local closestEnemy = nil
     local shortestDistance = MAX_DETECTION_DIST
 
-    for _, obj in pairs(workspace:GetDescendants()) do
+    -- Using targeted iteration pairs over critical workspace layout maps
+    for _, obj in ipairs(workspace:GetChildren()) do
         if isEnemy(obj) then
             local distance = (playerRoot.Position - obj.HumanoidRootPart.Position).Magnitude
             if distance < shortestDistance then
@@ -375,8 +376,12 @@ end
 local targetEnemy = nil
 task.spawn(function()
     while true do
-        targetEnemy = systemEnabled and getClosestEnemy() or nil
-        task.wait(0.1)
+        if systemEnabled then
+            targetEnemy = getClosestEnemy()
+        else
+            targetEnemy = nil
+        end
+        task.wait(0.2) -- Throttled loop to guarantee framerate stability
     end
 end)
 
@@ -401,7 +406,7 @@ end)
 -- // AUTO POTION // --
 task.spawn(function()
     while true do
-        task.wait(0.3)
+        task.wait(0.4)
         if systemEnabled and autoPotionEnabled then
             local character = player.Character
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -449,17 +454,21 @@ local function scanAndVerifyDrop(obj)
 end
 
 local cameraInstance = workspace:FindFirstChildOfClass("Camera") or workspace:FindFirstChild("Camera")
-if cameraInstance then cameraInstance.DescendantAdded:Connect(scanAndVerifyDrop) end
+if cameraInstance then 
+    cameraInstance.DescendantAdded:Connect(function(descendant)
+        pcall(scanAndVerifyDrop, descendant)
+    end) 
+end
 
 task.spawn(function()
     while true do
-        task.wait(0.3)
+        task.wait(0.4)
         if systemEnabled and autoCollectEnabled then
             local activeCam = workspace.CurrentCamera or workspace:FindFirstChild("Camera")
             local dropsFolder = activeCam and activeCam:FindFirstChild("Drops")
             if dropsFolder then
                 for _, itemElement in ipairs(dropsFolder:GetDescendants()) do
-                    scanAndVerifyDrop(itemElement)
+                    pcall(scanAndVerifyDrop, itemElement)
                 end
             end
         end
@@ -469,7 +478,7 @@ end)
 -- // WEAPON & AUTO ATTACK // --
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(0.6)
         if systemEnabled and autoEquipEnabled and player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
             if not player.Character:FindFirstChildOfClass("Tool") then
                 VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
