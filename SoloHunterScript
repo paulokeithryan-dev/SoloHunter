@@ -1,36 +1,16 @@
--- 1. Initialize Fluent UI Library with Fallbacks
-local Fluent = nil
-local success, result = pcall(function()
-    return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-end)
+-- Modern Fluent Bootstrapper
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
-if success and result then
-    Fluent = result
-else
-    -- Alternate mirror if GitHub releases are being throttled or blocked
-    local fallbackSuccess, fallbackResult = pcall(function()
-        return loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/main.lua"))()
-    end)
-    if fallbackSuccess then Fluent = fallbackResult end
-end
-
-if not Fluent then
-    error("[Automation Hub] Network Error: Executor blocked the Fluent UI download. Please try the UI-less version.")
-    return
-end
-
--- 2. Create Window
 local Window = Fluent:CreateWindow({
     Title = "Universal Automation Hub",
     SubTitle = "by Assistant",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
-    Acrylic = false, -- Disabled to avoid rendering lag or crashes on budget executors
+    Acrylic = false,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.LeftControl
 })
 
--- 3. Setup Tabs
 local Tabs = {
     Main = Window:AddTab({ Title = "Automation", Icon = "play" }),
     Settings = Window:AddTab({ Title = "Configurations", Icon = "settings" })
@@ -42,40 +22,42 @@ local LocalPlayer = Players.LocalPlayer
 local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Network Services & Remotes Structure
-local RemoteServices = ReplicatedStorage:WaitForChild("RemoteServices", 5)
-
-local CollectDropRF = RemoteServices 
-    and RemoteServices:WaitForChild("DropsService", 5) 
-    and RemoteServices.DropsService:WaitForChild("RF", 5) 
-    and RemoteServices.DropsService.RF:WaitForChild("CollectDrop", 5)
-
-local UseWeaponRF = RemoteServices 
-    and RemoteServices:WaitForChild("CombatService", 5)
-    and RemoteServices.CombatService:WaitForChild("RF", 5)
-    and RemoteServices.CombatService.RF:WaitForChild("UseWeapon", 5)
-
--- Strict Folder Mapping (Prevents workspace flooding)
+-- Strict Folder Mapping
 local Camera = workspace:FindFirstChild("Camera")
 local DropsFolder = (Camera and Camera:FindFirstChild("Drops")) or workspace:FindFirstChild("Drops")
 local EnemiesFolder = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters")
 
--- Script Global Variables
+-- Global Script Configuration
 local Options = Fluent.Options
 _G.AutoFarm = false
 _G.AutoCollect = false
 _G.FarmDistance = 5
 _G.CombatStance = "Above"
 
--- 4. Helper Functions
+-- Dynamic Safe Remote Resolvers (Fixes the global scope crash)
+local function getCollectDropRemote()
+    local rs = ReplicatedStorage:FindFirstChild("RemoteServices")
+    local ds = rs and rs:FindFirstChild("DropsService")
+    local rfFolder = ds and ds:FindFirstChild("RF")
+    return rfFolder and rfFolder:FindFirstChild("CollectDrop")
+end
+
+local function getUseWeaponRemote()
+    local rs = ReplicatedStorage:FindFirstChild("RemoteServices")
+    local cs = rs and rs:FindFirstChild("CombatService")
+    local rfFolder = cs and cs:FindFirstChild("RF")
+    return rfFolder and rfFolder:FindFirstChild("UseWeapon")
+end
+
+-- Targeting Math Helper
 local function getClosestEnemy()
     if not EnemiesFolder then return nil end
     local closest = nil
     local shortestDistance = math.huge
     
     local character = LocalPlayer.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
-    local myHrp = character.HumanoidRootPart
+    local myHrp = character and character:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return nil end
 
     pcall(function()
         for _, enemy in ipairs(EnemiesFolder:GetChildren()) do
@@ -102,16 +84,7 @@ local function teleportToPosition(pos)
     end)
 end
 
-local function processDrop(drop)
-    if not _G.AutoCollect or not CollectDropRF then return end
-    task.spawn(function()
-        pcall(function()
-            CollectDropRF:InvokeServer(drop)
-        end)
-    end)
-end
-
--- Anti-AFK
+-- Anti-AFK Handler
 pcall(function()
     LocalPlayer.Idled:Connect(function()
         VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
@@ -120,9 +93,7 @@ pcall(function()
     end)
 end)
 
--- 5. Build Tab Elements
-
--- Automation Tab
+-- Automation Tab Configuration
 Tabs.Main:AddSection("Combat Loops")
 
 local ToggleFarm = Tabs.Main:AddToggle("Toggle_AutoFarm", {Title = "Auto Farm Enemies", Default = false })
@@ -146,8 +117,10 @@ ToggleFarm:OnChanged(function()
                     teleportToPosition(finalCFrame)
                     
                     pcall(function()
-                        if UseWeaponRF then
-                            UseWeaponRF:InvokeServer(1, { target }, 0.4, nil, "CS_HW_V1")[cite: 3]
+                        local weaponRF = getUseWeaponRemote()
+                        if weaponRF then
+                            -- Packed safely without mid-tuple raw nils to prevent payload dropping
+                            weaponRF:InvokeServer(1, { target }, 0.4, "", "CS_HW_V1")[cite: 3]
                         else
                             local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
                             if tool then tool:Activate() end
@@ -168,30 +141,31 @@ ToggleCollect:OnChanged(function()
             while _G.AutoCollect do
                 pcall(function()
                     if DropsFolder then
+                        local collectRF = getCollectDropRemote()
                         for _, drop in ipairs(DropsFolder:GetChildren()) do
-                            if CollectDropRF then
+                            if collectRF then
                                 task.spawn(function()
-                                    CollectDropRF:InvokeServer(drop)
+                                    collectRF:InvokeServer(drop)
                                 end)
                             else
                                 teleportToPosition(drop.CFrame)
                                 task.wait(0.1)
                             end
                         end
-                    else
-                        warn("[Warning] Drops folder cannot be found in workspace currently.")
                     end
+                 pcall(function()
                 end)
-                task.wait(0.4)
+               end)
+               task.wait(0.4)
             end
         end)
     end
 end)
 
--- Configurations Tab
+-- Configurations Tab Configuration
 Tabs.Settings:AddSection("Farming Adjustments")
 
-local SliderDistance = Tabs.Settings:AddSlider("Slider_Distance", {
+Tabs.Settings:AddSlider("Slider_Distance", {
     Title = "Target Attack Distance",
     Description = "Distance maintained from target",
     Default = 5,
@@ -203,7 +177,7 @@ local SliderDistance = Tabs.Settings:AddSlider("Slider_Distance", {
     end
 })
 
-local DropdownStance = Tabs.Settings:AddDropdown("Dropdown_Stance", {
+Tabs.Settings:AddDropdown("Dropdown_Stance", {
     Title = "Teleport Combat Stance",
     Values = {"Above", "Behind", "Below"},
     CurrentOption = "Above",
@@ -212,18 +186,24 @@ local DropdownStance = Tabs.Settings:AddDropdown("Dropdown_Stance", {
     end
 })
 
--- 6. Safe Startup Initialization
+-- Dynamic Real-time Child Collector Sniper
 pcall(function()
     if DropsFolder then
-        DropsFolder.ChildAdded:Connect(processDrop)
+        DropsFolder.ChildAdded:Connect(function(drop)
+            if _G.AutoCollect then
+                local collectRF = getCollectDropRemote()
+                if collectRF then
+                    pcall(function() collectRF:InvokeServer(drop) end)
+                end
+            end
+        end)
     end
 end)
 
--- Select the main tab on open
 Tabs.Main:Select()
 
 Fluent:Notify({
     Title = "System Loaded",
-    Content = "Fluent Execution engine compiled successfully.",
+    Content = "Isolated code framework executing cleanly.",
     Duration = 5
 })
