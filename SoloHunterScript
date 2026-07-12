@@ -1,52 +1,21 @@
--- Diagnostic UI Bootstrapper
-local Rayfield = nil
-local success, result = pcall(function()
-    return loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
-end)
+-- Initialize Kavo UI Engine (Bypasses Rayfield's blocked network domains)
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
+local Window = Library.CreateLib("Universal Automation Hub", "Midnight")
 
-if success and result then
-    Rayfield = result
-else
-    -- Fallback to secondary mirror if primary is blocked by executor network rules
-    local legacySuccess, legacyResult = pcall(function()
-        return loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
-    end)
-    if legacySuccess then Rayfield = legacyResult end
-end
+-- Generate Core UI Structuring
+local MainTab = Window:NewTab("Automation")
+local MainSection = MainTab:NewSection("Combat Loops")
 
-if not Rayfield then
-    error("[Automation Hub] Critical Error: Your executor is blocking external network requests to the UI library.")
-    return
-end
+local ConfigTab = Window:NewTab("Configurations")
+local ConfigSection = ConfigTab:NewSection("Farming Adjustments")
 
--- 1. Create the Main Window Frame Safely
-local Window = Rayfield:CreateWindow({
-   Name = "Universal Automation Hub",
-   LoadingTitle = "Loading System...",
-   LoadingSubtitle = "by Assistant",
-   ConfigurationSaving = {
-      Enabled = false,
-      FolderName = "AutomationHub"
-   },
-   Discord = {
-      Enabled = false,
-      Invite = "",
-      RememberJoins = false
-   },
-   KeySystem = false
-})
-
--- 2. Generate Tabs
-local MainTab = Window:CreateTab("Automation", "play") 
-local ConfigTab = Window:CreateTab("Configurations", "settings")
-
--- Safe environment variables
+-- Safe Core Environment Variables
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Exact Network Services & Remotes Structure
+-- Exact Network Services & Remotes Structure Mapping
 local RemoteServices = ReplicatedStorage:WaitForChild("RemoteServices", 5)
 
 local CollectDropRF = RemoteServices 
@@ -59,18 +28,28 @@ local UseWeaponRF = RemoteServices
     and RemoteServices.CombatService:WaitForChild("RF", 5)
     and RemoteServices.CombatService.RF:WaitForChild("UseWeapon", 5)
 
--- Strict Folder Mapping (Prevents workspace flooding)
+-- Strict Folder Mapping (Prevents workspace flooding performance crashes)
 local Camera = workspace:FindFirstChild("Camera")
 local DropsFolder = (Camera and Camera:FindFirstChild("Drops")) or workspace:FindFirstChild("Drops")
 local EnemiesFolder = workspace:FindFirstChild("Enemies") or workspace:FindFirstChild("Monsters")
 
--- Script Global Variables
+-- Script Global State Variables
 _G.AutoFarm = false
 _G.AutoCollect = false
 _G.FarmDistance = 5
 _G.CombatStance = "Above"
 
--- 3. Helper Functions
+-- Helper 1: Safe Teleportation Matrix
+local function teleportToPosition(pos)
+    pcall(function()
+        local character = LocalPlayer.Character
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            character.HumanoidRootPart.CFrame = pos
+        end
+    end)
+end
+
+-- Helper 2: Closest Target Algorithm
 local function getClosestEnemy()
     if not EnemiesFolder then return nil end
     local closest = nil
@@ -96,15 +75,7 @@ local function getClosestEnemy()
     return closest
 end
 
-local function teleportToPosition(pos)
-    pcall(function()
-        local character = LocalPlayer.Character
-        if character and character:FindFirstChild("HumanoidRootPart") then
-            character.HumanoidRootPart.CFrame = pos
-        end
-    end)
-end
-
+-- Helper 3: Instant Drop Processor
 local function processDrop(drop)
     if not _G.AutoCollect or not CollectDropRF then return end
     task.spawn(function()
@@ -114,7 +85,7 @@ local function processDrop(drop)
     end)
 end
 
--- Anti-AFK
+-- Native Anti-AFK Hook
 pcall(function()
     LocalPlayer.Idled:Connect(function()
         VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
@@ -123,117 +94,86 @@ pcall(function()
     end)
 end)
 
--- 4. Build Tab Elements
-MainTab:CreateSection("Combat Loops")
+-- ====================================================================
+-- BUILDING UI INTERACTIONS
+-- ====================================================================
 
-MainTab:CreateToggle({
-   Name = "Auto Farm Enemies",
-   CurrentValue = false,
-   Flag = "Toggle_AutoFarm",
-   Callback = function(Value)
-      _G.AutoFarm = Value
-      if Value then
-          task.spawn(function()
-              while _G.AutoFarm do
-                  local target = getClosestEnemy()
-                  if target and target:FindFirstChild("HumanoidRootPart") then
-                      
-                      -- Corrected Pure Local CFrame Transformations
-                      local targetCFrame = target.HumanoidRootPart.CFrame
-                      local finalCFrame = targetCFrame * CFrame.new(0, _G.FarmDistance, 0) -- Default Above
-                      
-                      if _G.CombatStance == "Behind" then
-                          finalCFrame = targetCFrame * CFrame.new(0, 0, _G.FarmDistance)
-                      elseif _G.CombatStance == "Below" then
-                          finalCFrame = targetCFrame * CFrame.new(0, -_G.FarmDistance, 0)
-                      end
-                      
-                      teleportToPosition(finalCFrame)
-                      
-                      -- Remote Weapon Invocation
-                      pcall(function()
-                          if UseWeaponRF then
-                              UseWeaponRF:InvokeServer(1, { target }, 0.4, nil, "CS_HW_V1")
-                          else
-                              local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
-                              if tool then tool:Activate() end
-                          end
-                      end)
-                  end
-                  task.wait(0.1)
-              end
-          end)
-      end
-   end,
-})
+-- 1. Auto Farm Toggle
+MainSection:NewToggle("Auto Farm Enemies", "Teleports to and automatically attacks targets", function(state)
+    _G.AutoFarm = state
+    if state then
+        task.spawn(function()
+            while _G.AutoFarm do
+                local target = getClosestEnemy()
+                if target and target:FindFirstChild("HumanoidRootPart") then
+                    
+                    -- Corrected Pure Local CFrame Transformations
+                    local targetCFrame = target.HumanoidRootPart.CFrame
+                    local finalCFrame = targetCFrame * CFrame.new(0, _G.FarmDistance, 0) -- Default Above
+                    
+                    if _G.CombatStance == "Behind" then
+                        finalCFrame = targetCFrame * CFrame.new(0, 0, _G.FarmDistance)
+                    elseif _G.CombatStance == "Below" then
+                        finalCFrame = targetCFrame * CFrame.new(0, -_G.FarmDistance, 0)
+                    end
+                    
+                    teleportToPosition(finalCFrame)
+                    
+                    -- Remote Weapon Invocation
+                    pcall(function()
+                        if UseWeaponRF then
+                            UseWeaponRF:InvokeServer(1, { target }, 0.4, nil, "CS_HW_V1")[cite: 3]
+                        else
+                            local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                            if tool then tool:Activate() end
+                        end
+                    end)
+                end
+                task.wait(0.1)
+            end
+        end)
+    end
+end)
 
-MainTab:CreateToggle({
-   Name = "Auto Collect Drops",
-   CurrentValue = false,
-   Flag = "Toggle_AutoCollect",
-   Callback = function(Value)
-      _G.AutoCollect = Value
-      if Value then
-          task.spawn(function()
-              while _G.AutoCollect do
-                  pcall(function()
-                      if DropsFolder then
-                          for _, drop in ipairs(DropsFolder:GetChildren()) do
-                              if CollectDropRF then
-                                  task.spawn(function()
-                                      CollectDropRF:InvokeServer(drop)
-                                  end)
-                              else
-                                  teleportToPosition(drop.CFrame)
-                                  task.wait(0.1)
-                              end
-                          end
-                      else
-                          warn("[Warning] Drops folder cannot be found in workspace currently.")
-                      end
-                  end)
-                  task.wait(0.4)
-              end
-          end)
-      end
-   end,
-})
+-- 2. Auto Collect Drops Toggle
+MainSection:NewToggle("Auto Collect Drops", "Instantly vacuums drops across the map via server remotes", function(state)
+    _G.AutoCollect = state
+    if state then
+        task.spawn(function()
+            while _G.AutoCollect do
+                pcall(function()
+                    if DropsFolder then
+                        for _, drop in ipairs(DropsFolder:GetChildren()) do
+                            if CollectDropRF then
+                                task.spawn(function()
+                                    CollectDropRF:InvokeServer(drop)
+                                end)
+                            else
+                                teleportToPosition(drop.CFrame)
+                                task.wait(0.1)
+                            end
+                        end
+                    end
+                end)
+                task.wait(0.4)
+            end
+        end)
+    end
+end)
 
-ConfigTab:CreateSection("Farming Adjustments")
+-- 3. Farm Distance Adjustment Slider
+ConfigSection:NewSlider("Attack Distance", "Adjusts local farming offset spacing", 15, 2, function(v)
+    _G.FarmDistance = v
+end)
 
-ConfigTab:CreateSlider({
-   Name = "Target Attack Distance",
-   Range = {2, 15},
-   Increment = 1,
-   Suffix = " Studs",
-   CurrentValue = 5,
-   Flag = "Slider_Distance",
-   Callback = function(Value)
-      _G.FarmDistance = Value
-   end,
-})
+-- 4. Combat Stance Selector Dropdown
+ConfigSection:NewDropdown("Combat Position Stance", "Changes spatial tracking behavior", {"Above", "Behind", "Below"}, function(currentOption)
+    _G.CombatStance = currentOption
+end)
 
-ConfigTab:CreateDropdown({
-   Name = "Teleport Combat Stance",
-   Options = {"Above", "Behind", "Below"},
-   CurrentOption = {"Above"},
-   MultipleOptions = false,
-   Flag = "Dropdown_Stance",
-   Callback = function(Options)
-      _G.CombatStance = Options[1]
-   end,
-})
-
--- 5. Safe Startup Initialization
+-- 5. Active Live Listener Hook Setup
 pcall(function()
     if DropsFolder then
         DropsFolder.ChildAdded:Connect(processDrop)
     end
 end)
-
-Rayfield:Notify({
-   Title = "System Loaded",
-   Content = "Execution engine online with verified stability updates.",
-   Duration = 5,
-   Image = "check"
-})
