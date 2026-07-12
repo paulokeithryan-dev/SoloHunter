@@ -23,29 +23,29 @@ local SKILL_INTERVAL = 1.5
 
 -- // USER INTERFACE CREATION // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoCombatUI_v4"
+screenGui.Name = "AutoCombatUI_v5"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- Main Container Frame (Draggable disabled)
+-- Main Container Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 190, 0, 205)
 mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
-mainFrame.Draggable = false -- Made undraggable
+mainFrame.Draggable = false 
 mainFrame.Parent = screenGui
 
 local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(0, 8)
 uiCorner.Parent = mainFrame
 
--- Floating Icon (Appears only when menu is minimized)
+-- Floating Icon
 local floatingIcon = Instance.new("TextButton")
 floatingIcon.Name = "FloatingIcon"
 floatingIcon.Size = UDim2.new(0, 50, 0, 50)
-floatingIcon.Position = UDim2.new(0.1, 0, 0.1, 0) -- Spawns at same initial area
+floatingIcon.Position = UDim2.new(0.1, 0, 0.1, 0) 
 floatingIcon.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 floatingIcon.Text = "MENU"
 floatingIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -55,7 +55,7 @@ floatingIcon.Visible = false
 floatingIcon.Parent = screenGui
 
 local iconCorner = Instance.new("UICorner")
-iconCorner.CornerRadius = UDim.new(0, 25) -- Makes it a perfect floating circle
+iconCorner.CornerRadius = UDim.new(0, 25) 
 iconCorner.Parent = floatingIcon
 
 local iconStroke = Instance.new("UIStroke")
@@ -82,13 +82,10 @@ local function createButton(name, text, pos, size, color)
     return btn
 end
 
--- 1. Main System Toggle Button (Narrowed slightly to fit minimize button)
+-- UI Buttons
 local toggleButton = createButton("ToggleBtn", "SYSTEM: OFF", UDim2.new(0, 5, 0, 5), UDim2.new(1, -45, 0, 35), Color3.fromRGB(200, 60, 60))
-
--- Minimize Button (-)
 local minimizeButton = createButton("MinimizeBtn", "—", UDim2.new(1, -35, 0, 5), UDim2.new(0, 30, 0, 35), Color3.fromRGB(50, 50, 50))
 
--- 2. Height Adjustment Elements
 local minusBtn = Instance.new("TextButton")
 minusBtn.Size = UDim2.new(0, 30, 0, 35)
 minusBtn.Position = UDim2.new(0, 5, 0, 45)
@@ -127,7 +124,6 @@ local btnCorner3 = Instance.new("UICorner")
 btnCorner3.CornerRadius = UDim.new(0, 6)
 btnCorner3.Parent = plusBtn
 
--- 3. Configuration Toggles
 local equipButton = createButton("EquipBtn", "Auto-Equip: ON", UDim2.new(0, 5, 0, 85), UDim2.new(1, -10, 0, 35), Color3.fromRGB(60, 150, 200))
 local collectButton = createButton("CollectBtn", "Auto-Collect: ON", UDim2.new(0, 5, 0, 125), UDim2.new(1, -10, 0, 35), Color3.fromRGB(140, 60, 200))
 local potionButton = createButton("PotionBtn", "Auto-Potion: ON", UDim2.new(0, 5, 0, 165), UDim2.new(1, -10, 0, 35), Color3.fromRGB(210, 130, 40))
@@ -145,46 +141,26 @@ end)
 
 toggleButton.MouseButton1Click:Connect(function()
     systemEnabled = not systemEnabled
-    if systemEnabled then
-        toggleButton.Text = "SYSTEM: ON"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
-    else
-        toggleButton.Text = "SYSTEM: OFF"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-    end
+    toggleButton.Text = systemEnabled and "SYSTEM: ON" or "SYSTEM: OFF"
+    toggleButton.BackgroundColor3 = systemEnabled and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(200, 60, 60)
 end)
 
 equipButton.MouseButton1Click:Connect(function()
     autoEquipEnabled = not autoEquipEnabled
-    if autoEquipEnabled then
-        equipButton.Text = "Auto-Equip: ON"
-        equipButton.BackgroundColor3 = Color3.fromRGB(60, 150, 200)
-    else
-        equipButton.Text = "Auto-Equip: OFF"
-        equipButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-    end
+    equipButton.Text = autoEquipEnabled and "Auto-Equip: ON" or "Auto-Equip: OFF"
+    equipButton.BackgroundColor3 = autoEquipEnabled and Color3.fromRGB(60, 150, 200) or Color3.fromRGB(100, 100, 100)
 end)
 
 collectButton.MouseButton1Click:Connect(function()
     autoCollectEnabled = not autoCollectEnabled
-    if autoCollectEnabled then
-        collectButton.Text = "Auto-Collect: ON"
-        collectButton.BackgroundColor3 = Color3.fromRGB(140, 60, 200)
-    else
-        collectButton.Text = "Auto-Collect: OFF"
-        collectButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-    end
+    collectButton.Text = autoCollectEnabled and "Auto-Collect: ON" or "Auto-Collect: OFF"
+    collectButton.BackgroundColor3 = autoCollectEnabled and Color3.fromRGB(140, 60, 200) or Color3.fromRGB(100, 100, 100)
 end)
 
 potionButton.MouseButton1Click:Connect(function()
     autoPotionEnabled = not autoPotionEnabled
-    if autoPotionEnabled then
-        potionButton.Text = "Auto-Potion: ON"
-        potionButton.BackgroundColor3 = Color3.fromRGB(210, 130, 40)
-    else
-        potionButton.Text = "Auto-Potion: OFF"
-        potionButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-    end
+    potionButton.Text = autoPotionEnabled and "Auto-Potion: ON" or "Auto-Potion: OFF"
+    potionButton.BackgroundColor3 = autoPotionEnabled and Color3.fromRGB(210, 130, 40) or Color3.fromRGB(100, 100, 100)
 end)
 
 minusBtn.MouseButton1Click:Connect(function()
@@ -230,7 +206,7 @@ local function getClosestEnemy()
     return closestEnemy
 end
 
--- // POSITIONING LOOP // --
+-- // POSITIONING & AIMING LOOP // --
 local targetEnemy = nil
 
 RunService.Heartbeat:Connect(function()
@@ -251,10 +227,12 @@ RunService.Heartbeat:Connect(function()
         local enemyRoot = targetEnemy.HumanoidRootPart
         local _, boxSize = targetEnemy:GetBoundingBox()
         
+        -- Keeps you directly above the target
         local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
         local targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
         
-        root.CFrame = CFrame.new(targetPosition, enemyRoot.Position)
+        -- FORCED DOWNWARD AIM: Angles the character's forward look vector completely down toward the enemy
+        root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
         root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
     end
 end)
@@ -280,32 +258,46 @@ task.spawn(function()
     end
 end)
 
--- // REAL-TIME WORKSPACE MAP MONITOR FOR DROPS // --
+-- // FLAWLESS DROP COLLECTION SYSTEM // --
 local function processDrop(obj)
-    -- Targets objects containing "drop" in their name, or items with proximity prompts/mesh identifiers common to drops
-    if obj.Name:lower():find("drop") or obj.Name == "ItemDrop" then
-        pcall(function()
-            dropRemote:InvokeServer(obj)
+    if not systemEnabled or not autoCollectEnabled or not obj then return end
+    
+    local nameLower = obj.Name:lower()
+    local parentNameLower = (obj.Parent and obj.Parent.Name:lower()) or ""
+    
+    -- Broadened match filters to catch items named by their drop tier or rarity
+    local isDrop = nameLower:find("drop") 
+        or nameLower:find("loot") 
+        or nameLower:find("item")
+        or parentNameLower:find("drop") 
+        or parentNameLower:find("loot")
+        or obj:IsA("ProximityPrompt")
+        or obj:IsA("TouchTransmitter")
+        
+    if isDrop then
+        -- Runs inside a non-blocking fast thread to prevent network lagging
+        task.spawn(function()
+            pcall(function() dropRemote:InvokeServer(obj) end)
+            if obj.Parent and obj.Parent:IsA("Model") then
+                pcall(function() dropRemote:InvokeServer(obj.Parent) end)
+            end
         end)
     end
 end
 
+-- Real-time Watcher
+workspace.DescendantAdded:Connect(processDrop)
+
+-- Continuous Polling Cleanup Loop (In case DescendantAdded misses an unanchored physics item)
 task.spawn(function()
-    -- 1. Scan and instantly clear everything currently on the map upon running
-    for _, obj in ipairs(workspace:GetDescendants()) do
+    while true do
+        task.wait(0.5)
         if systemEnabled and autoCollectEnabled then
-            processDrop(obj)
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                processDrop(obj)
+            end
         end
     end
-    
-    -- 2. Establish a persistent active watcher on the workspace map
-    workspace.DescendantAdded:Connect(function(obj)
-        if systemEnabled and autoCollectEnabled then
-            -- A micro-delay ensures the drop data exists fully on your client before firing
-            task.wait(0.05) 
-            processDrop(obj)
-        end
-    end)
 end)
 
 -- // AUTO WEAPON EQUIP LOOP // --
