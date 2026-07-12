@@ -6,7 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- // VERIFIED REMOTES (From Cobalt Logs) // --
+-- // VERIFIED REMOTES // --
 local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
@@ -24,15 +24,15 @@ local autoPotionEnabled = true
 local autoDungeonEnabled = true  
 
 local HOVER_HEIGHT = 4         
-local MAX_DETECTION_DIST = 300  
-local M1_SPEED = 0.1            
-local SKILL_INTERVAL = 1.5      
+local MAX_DETECTION_DIST = 500  -- Increased detection radius
+local M1_SPEED = 0.05            -- Maximum attack speed capability
+local SKILL_INTERVAL = 1.0      -- Faster spell loops
 
 local processedDrops = {}
 
 -- // AUTOMATIC LAYOUT INTERFACE DESIGN // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "SleekCombatHub_v12"
+screenGui.Name = "SleekCombatHub_v13"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
@@ -268,7 +268,6 @@ end)
 potionButton.MouseButton1Click:Connect(function()
     autoPotionEnabled = not autoPotionEnabled
     potionButton.Text = autoPotionEnabled and "Auto-Potion: ON" or "Auto-Potion: OFF"
-    -- FIXED: Removed typo error 'elder'
     potionButton.BackgroundColor3 = autoPotionEnabled and Color3.fromRGB(210, 130, 40) or Color3.fromRGB(80, 80, 80)
 end)
 
@@ -342,7 +341,7 @@ local function refreshPortalList()
 end
 refreshPortalsBtn.MouseButton1Click:Connect(refreshPortalList)
 
--- // OPTIMIZED COMBAT TARGET ENGINE // --
+-- // HIGH-AGGRESSION UNLOCKED COMBAT ENGINE // --
 local function isEnemy(model)
     if model and model:IsA("Model") and model ~= player.Character then
         local humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -360,8 +359,8 @@ local function getClosestEnemy()
     local closestEnemy = nil
     local shortestDistance = MAX_DETECTION_DIST
 
-    -- Using targeted iteration pairs over critical workspace layout maps
-    for _, obj in ipairs(workspace:GetChildren()) do
+    -- UNLOCKED: Restored complete deep-hierarchy scan to bypass map structure organization
+    for _, obj in ipairs(workspace:GetDescendants()) do
         if isEnemy(obj) then
             local distance = (playerRoot.Position - obj.HumanoidRootPart.Position).Magnitude
             if distance < shortestDistance then
@@ -381,7 +380,7 @@ task.spawn(function()
         else
             targetEnemy = nil
         end
-        task.wait(0.2) -- Throttled loop to guarantee framerate stability
+        task.wait(0.05) -- Accelerated loop refresh rate
     end
 end)
 
@@ -406,13 +405,13 @@ end)
 -- // AUTO POTION // --
 task.spawn(function()
     while true do
-        task.wait(0.4)
+        task.wait(0.2)
         if systemEnabled and autoPotionEnabled then
             local character = player.Character
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
             if humanoid and humanoid.Health > 0 and (humanoid.Health / humanoid.MaxHealth) <= 0.5 then
                 pcall(function() healRemote:InvokeServer() end)
-                task.wait(1.5)
+                task.wait(1.2)
             end
         end
     end
@@ -462,7 +461,7 @@ end
 
 task.spawn(function()
     while true do
-        task.wait(0.4)
+        task.wait(0.2) -- Fast capture cycle
         if systemEnabled and autoCollectEnabled then
             local activeCam = workspace.CurrentCamera or workspace:FindFirstChild("Camera")
             local dropsFolder = activeCam and activeCam:FindFirstChild("Drops")
@@ -478,7 +477,7 @@ end)
 -- // WEAPON & AUTO ATTACK // --
 task.spawn(function()
     while true do
-        task.wait(0.6)
+        task.wait(0.4)
         if systemEnabled and autoEquipEnabled and player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
             if not player.Character:FindFirstChildOfClass("Tool") then
                 VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
@@ -504,7 +503,7 @@ end)
 -- // DUNGEON HANDSHAKING // --
 task.spawn(function()
     while true do
-        task.wait(1.5)
+        task.wait(1.0)
         if systemEnabled and autoDungeonEnabled then
             local mainGui = playerGui:FindFirstChild("Main")
             if mainGui and mainGui:FindFirstChild("StartBtn") and mainGui.StartBtn.Visible then
@@ -529,7 +528,7 @@ task.spawn(function()
                 VirtualInputManager:SendKeyEvent(false, key, false, game)
                 task.wait(SKILL_INTERVAL)
             else
-                task.wait(0.5)
+                task.wait(0.2)
             end
         end
     end
