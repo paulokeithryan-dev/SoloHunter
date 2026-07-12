@@ -6,15 +6,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- // EXPLOIT REMOTES // --
+-- // VERIFIED REMOTES // --
 local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
-
-local getActDungeonPlayers = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("GetActDungeonPlayers")
-local startDungeonFromGate = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("StartDungeonFromGate")
 
 -- // CONFIG & STATE // --
 local systemEnabled = false
@@ -28,13 +25,14 @@ local MAX_DETECTION_DIST = 300
 local M1_SPEED = 0.1            
 local SKILL_INTERVAL = 1.5      
 
+local processedDrops = {}
+
 -- // UNIFIED USER INTERFACE // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "SleekCombatHub_v8"
+screenGui.Name = "SleekCombatHub_v11"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- Single Base Window
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 420, 0, 250)
 mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
@@ -48,7 +46,6 @@ local mainCorner = Instance.new("UICorner")
 mainCorner.CornerRadius = UDim.new(0, 8)
 mainCorner.Parent = mainFrame
 
--- Left Sidebar Container
 local sidebarFrame = Instance.new("Frame")
 sidebarFrame.Size = UDim2.new(0, 180, 1, 0)
 sidebarFrame.Position = UDim2.new(0, 0, 0, 0)
@@ -60,7 +57,6 @@ local sidebarCorner = Instance.new("UICorner")
 sidebarCorner.CornerRadius = UDim.new(0, 8)
 sidebarCorner.Parent = sidebarFrame
 
--- Hide raw rounded corners on the inner split edge
 local splitCover = Instance.new("Frame")
 splitCover.Size = UDim2.new(0, 10, 1, 0)
 splitCover.Position = UDim2.new(1, -10, 0, 0)
@@ -68,14 +64,12 @@ splitCover.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
 splitCover.BorderSizePixel = 0
 splitCover.Parent = sidebarFrame
 
--- Right Content Panel Container
 local contentFrame = Instance.new("Frame")
 contentFrame.Size = UDim2.new(0, 240, 1, 0)
 contentFrame.Position = UDim2.new(0, 180, 0, 0)
 contentFrame.BackgroundTransparency = 1
 contentFrame.Parent = mainFrame
 
--- Floating Restorers Button
 local floatingIcon = Instance.new("TextButton")
 floatingIcon.Name = "FloatingIcon"
 floatingIcon.Size = UDim2.new(0, 60, 0, 35)
@@ -97,7 +91,6 @@ iconStroke.Color = Color3.fromRGB(140, 60, 200)
 iconStroke.Thickness = 1.5
 iconStroke.Parent = floatingIcon
 
--- Helper function for clean buttons inside sidebar
 local function createSidebarButton(name, text, yPos, height, color)
     local btn = Instance.new("TextButton")
     btn.Name = name
@@ -116,7 +109,6 @@ local function createSidebarButton(name, text, yPos, height, color)
     return btn
 end
 
--- Assemble Sidebar Controls
 local toggleButton = createSidebarButton("ToggleBtn", "SYSTEM: OFF", 10, 32, Color3.fromRGB(200, 60, 60))
 
 local minusBtn = Instance.new("TextButton")
@@ -151,7 +143,7 @@ plusBtn.Text = "+"
 plusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 plusBtn.Font = Enum.Font.SourceSansBold
 plusBtn.TextSize = 16
-plusBtn.Parent = sidebarFrame
+plusBtn.Parent = plusBtn
 
 local plusCorner = Instance.new("UICorner")
 plusCorner.CornerRadius = UDim.new(0, 5)
@@ -162,12 +154,11 @@ local collectButton = createSidebarButton("CollectBtn", "Auto-Collect: ON", 114,
 local potionButton = createSidebarButton("PotionBtn", "Auto-Potion: ON", 146, 28, Color3.fromRGB(210, 130, 40))
 local dungeonButton = createSidebarButton("DungeonBtn", "Auto-Dungeon: ON", 178, 28, Color3.fromRGB(220, 60, 100))
 
--- Assemble Right Panel Layout
 local portalTitle = Instance.new("TextLabel")
 portalTitle.Size = UDim2.new(1, -40, 0, 25)
 portalTitle.Position = UDim2.new(0, 12, 0, 10)
 portalTitle.BackgroundTransparency = 1
-portalTitle.Text = "PORTAL GATEWAY SCANNER"
+portalTitle.Text = "DYN-GATEWAY SCANNER"
 portalTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 portalTitle.Font = Enum.Font.SourceSansBold
 portalTitle.TextSize = 13
@@ -192,7 +183,7 @@ local refreshPortalsBtn = Instance.new("TextButton")
 refreshPortalsBtn.Size = UDim2.new(1, -24, 0, 28)
 refreshPortalsBtn.Position = UDim2.new(0, 12, 0, 40)
 refreshPortalsBtn.BackgroundColor3 = Color3.fromRGB(35, 140, 105)
-refreshPortalsBtn.Text = "🔄 REFRESH PORTAL CACHE"
+refreshPortalsBtn.Text = "🔄 SCRAPE WORKSPACE GATES"
 refreshPortalsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 refreshPortalsBtn.Font = Enum.Font.SourceSansBold
 refreshPortalsBtn.TextSize = 12
@@ -215,7 +206,7 @@ portalListLayout.Padding = UDim.new(0, 4)
 portalListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 portalListLayout.Parent = portalScroll
 
--- // INTERACTION LOGIC // --
+-- // UI SIGNALS // --
 minimizeButton.MouseButton1Click:Connect(function()
     mainFrame.Visible = false
     floatingIcon.Visible = true
@@ -266,30 +257,7 @@ plusBtn.MouseButton1Click:Connect(function()
     heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
 end)
 
--- // BYPASS MAGNITUDE AND TRIGGER GATEWAY // --
-local function teleportAndEnterPortal(portalObject, categoryName)
-    local character = player.Character
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    
-    local targetPart = portalObject:IsA("Model") and (portalObject.PrimaryPart or portalObject:FindFirstChildOfClass("BasePart")) or portalObject
-    if not targetPart then return end
-    
-    -- Snap player straight into the gateway box boundary
-    root.CFrame = targetPart.CFrame * CFrame.new(0, 2, 0)
-    task.wait(0.25)
-    
-    -- Call Server Remote Transactions
-    pcall(function()
-        getActDungeonPlayers:InvokeServer(portalObject.Name, 1)
-    end)
-    task.wait(0.1)
-    pcall(function()
-        startDungeonFromGate:InvokeServer()
-    end)
-end
-
--- // RUNTIME PORTAL PARSER ENGINE // --
+-- // FIXED PORTAL SCANNING ENGINE // --
 local function refreshPortalList()
     for _, child in ipairs(portalScroll:GetChildren()) do
         if child:IsA("TextButton") then
@@ -297,48 +265,70 @@ local function refreshPortalList()
         end
     end
     
-    local paths = {
-        ["Normal"] = workspace:FindFirstChild("PortalSpawns") and workspace.PortalSpawns:FindFirstChild("Normal"),
-        ["Infinite"] = workspace:FindFirstChild("PortalSpawns") and workspace.PortalSpawns:FindFirstChild("Infinite"),
-        ["Artifact"] = workspace:FindFirstChild("PortalSpawns") and workspace.PortalSpawns:FindFirstChild("ArtifactGates"),
-    }
-    
     local itemsCount = 0
     
-    for category, folder in pairs(paths) do
-        if folder then
-            for _, portal in ipairs(folder:GetChildren()) do
-                itemsCount = itemsCount + 1
-                
-                local pBtn = Instance.new("TextButton")
-                pBtn.Size = UDim2.new(1, -8, 0, 26)
-                pBtn.BackgroundColor3 = category == "Normal" and Color3.fromRGB(48, 90, 48) 
-                                     or category == "Infinite" and Color3.fromRGB(48, 68, 95) 
-                                     or Color3.fromRGB(100, 45, 45)
-                                     
-                pBtn.Text = string.format("[%s] %s", category:upper(), portal.Name)
-                pBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                pBtn.Font = Enum.Font.SourceSans
-                pBtn.TextSize = 12
-                pBtn.Parent = portalScroll
-                
-                local btnCorner = Instance.new("UICorner")
-                btnCorner.CornerRadius = UDim.new(0, 4)
-                btnCorner.Parent = pBtn
-                
-                pBtn.MouseButton1Click:Connect(function()
-                    teleportAndEnterPortal(portal, category)
-                end)
+    -- Scans entire workspace recursively for any generic "PortalModel"
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj.Name == "PortalModel" then
+            itemsCount = itemsCount + 1
+            
+            local displayTitle = "Portal Model [Unparsed]"
+            local rawStrings = {}
+            
+            -- Scrape active text labels found inside its SurfaceGuis/BillboardGuis
+            for _, descendant in ipairs(obj:GetDescendants()) do
+                if descendant:IsA("TextLabel") and descendant.Text ~= "" and #descendant.Text < 40 then
+                    table.insert(rawStrings, descendant.Text)
+                end
             end
+            
+            -- Reconstruct label based on UI values extracted (e.g., "The Subway - Level 30")
+            if #rawStrings > 0 then
+                local mainZone = rawStrings[1] or "Unknown"
+                local zoneMeta = rawStrings[2] or "Unknown Level"
+                displayTitle = string.format("%s (%s)", mainZone, zoneMeta)
+            end
+            
+            local pBtn = Instance.new("TextButton")
+            pBtn.Size = UDim2.new(1, -8, 0, 32)
+            pBtn.BackgroundColor3 = Color3.fromRGB(85, 45, 115) -- Distinct color for parsed gates
+            pBtn.Text = displayTitle
+            pBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            pBtn.Font = Enum.Font.SourceSansBold
+            pBtn.TextSize = 12
+            pBtn.Parent = portalScroll
+            
+            local btnCorner = Instance.new("UICorner")
+            btnCorner.CornerRadius = UDim.new(0, 5)
+            btnCorner.Parent = pBtn
+            
+            -- Dynamic click verification sequence
+            pBtn.MouseButton1Click:Connect(function()
+                local character = player.Character
+                local root = character and character:FindFirstChild("HumanoidRootPart")
+                local proximityPart = obj:FindFirstChild("ProximityPart")
+                
+                if root and proximityPart then
+                    -- Relocate directly into prompt calculation frame
+                    root.CFrame = proximityPart.CFrame
+                    task.wait(0.2)
+                    
+                    -- Trigger interaction prompt directly via your environment capabilities
+                    local prompt = proximityPart:FindFirstChildOfClass("ProximityPrompt")
+                    if prompt and fireproximityprompt then
+                        fireproximityprompt(prompt)
+                    end
+                end
+            end)
         end
     end
     
-    portalScroll.CanvasSize = UDim2.new(0, 0, 0, itemsCount * 30)
+    portalScroll.CanvasSize = UDim2.new(0, 0, 0, itemsCount * 36)
 end
 
 refreshPortalsBtn.MouseButton1Click:Connect(refreshPortalList)
 
--- // MOB DETECTION ENGINE // --
+-- // TARGET MONITORING SYSTEM // --
 local function isEnemy(model)
     if model:IsA("Model") and model ~= player.Character then
         local humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -407,7 +397,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- // AUTO HEALTH VIAL LOOP // --
+-- // AUTO POTION ENGINE // --
 task.spawn(function()
     while true do
         task.wait(0.3)
@@ -418,9 +408,7 @@ task.spawn(function()
             if humanoid and humanoid.Health > 0 then
                 local hpPercent = humanoid.Health / humanoid.MaxHealth
                 if hpPercent <= 0.5 then
-                    pcall(function()
-                        healRemote:InvokeServer()
-                    end)
+                    pcall(function() healRemote:InvokeServer() end)
                     task.wait(1.5) 
                 end
             end
@@ -428,70 +416,68 @@ task.spawn(function()
     end
 end)
 
--- // EXTENDED DROP VACUUM SYSTEM // --
-local function processDrop(obj)
+-- // DROP RECOVERY PROCESS // --
+local function scanAndVerifyDrop(obj)
     if not systemEnabled or not autoCollectEnabled or not obj then return end
     
-    if obj:IsA("ProximityPrompt") then
-        task.spawn(function()
-            if fireproximityprompt then
-                fireproximityprompt(obj)
-            else
-                pcall(function() dropRemote:InvokeServer(obj) end)
-                if obj.Parent and obj.Parent:IsA("Model") then
-                    pcall(function() dropRemote:InvokeServer(obj.Parent) end)
-                end
-            end
-        end)
-        return
+    local dropId = nil
+    local uuidPattern = "%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x"
+
+    if string.match(obj.Name, uuidPattern) then
+        dropId = obj.Name
     end
 
-    local nameLower = obj.Name:lower()
-    local parentNameLower = (obj.Parent and obj.Parent.Name:lower()) or ""
-    
-    local isDrop = nameLower:find("drop") 
-        or nameLower:find("loot") 
-        or nameLower:find("item")
-        or nameLower:find("potion")
-        or parentNameLower:find("drop") 
-        or parentNameLower:find("loot")
-        or obj:IsA("TouchTransmitter")
-        
-    if isDrop then
-        task.spawn(function()
-            pcall(function() dropRemote:InvokeServer(obj) end)
-            if obj.Parent and obj.Parent:IsA("Model") then
-                pcall(function() dropRemote:InvokeServer(obj.Parent) end)
+    if not dropId then
+        for _, child in ipairs(obj:GetChildren()) do
+            if child:IsA("StringValue") and string.match(child.Value, uuidPattern) then
+                dropId = child.Value
+                break
+            elseif string.match(child.Name, uuidPattern) then
+                dropId = child.Name
+                break
             end
+        end
+    end
+
+    if not dropId then
+        for attrName, attrVal in pairs(obj:GetAttributes()) do
+            if type(attrVal) == "string" and string.match(attrVal, uuidPattern) then
+                dropId = attrVal
+                break
+            end
+        end
+    end
+
+    if dropId and not processedDrops[dropId] then
+        processedDrops[dropId] = true
+        task.spawn(function()
+            pcall(function()
+                dropRemote:InvokeServer(dropId)
+            end)
         end)
     end
 end
 
-workspace.DescendantAdded:Connect(processDrop)
-
 local cameraInstance = workspace:FindFirstChildOfClass("Camera") or workspace:FindFirstChild("Camera")
 if cameraInstance then
-    cameraInstance.DescendantAdded:Connect(processDrop)
+    cameraInstance.DescendantAdded:Connect(scanAndVerifyDrop)
 end
 
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(0.3)
         if systemEnabled and autoCollectEnabled then
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                processDrop(obj)
-            end
             local activeCam = workspace.CurrentCamera or workspace:FindFirstChild("Camera")
             if activeCam and activeCam:FindFirstChild("Drops") then
-                for _, obj in ipairs(activeCam.Drops:GetDescendants()) do
-                    processDrop(obj)
+                for _, itemElement in ipairs(activeCam.Drops:GetDescendants()) do
+                    scanAndVerifyDrop(itemElement)
                 end
             end
         end
     end
 end)
 
--- // AUTO COMBAT WEAPON ENGAGEMENT // --
+-- // WEAPON MANAGEMENT // --
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -513,10 +499,7 @@ task.spawn(function()
     while true do
         task.wait(M1_SPEED)
         if systemEnabled and targetEnemy then
-            task.spawn(function()
-                pcall(function() useWeaponRemote:InvokeServer() end)
-            end)
-            
+            task.spawn(function() pcall(function() useWeaponRemote:InvokeServer() end) end)
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
             task.wait(0.01)
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
@@ -524,7 +507,7 @@ task.spawn(function()
     end
 end)
 
--- // LOBBY HANDSHAKE SYSTEM // --
+-- // SCENE HANDSHAKE ENGINE // --
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -544,7 +527,7 @@ task.spawn(function()
     end
 end)
 
--- // SPELLCAST ROTATION ENGINE // --
+-- // SPELLCAST LOGIC // --
 local skills = {Enum.KeyCode.F, Enum.KeyCode.R, Enum.KeyCode.C}
 
 task.spawn(function()
@@ -554,7 +537,6 @@ task.spawn(function()
                 VirtualInputManager:SendKeyEvent(true, key, false, game)
                 task.wait(0.05)
                 VirtualInputManager:SendKeyEvent(false, key, false, game)
-                
                 task.wait(SKILL_INTERVAL)
             else
                 task.wait(0.5)
