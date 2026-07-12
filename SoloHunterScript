@@ -24,13 +24,14 @@ local autoPotionEnabled = true
 local autoDungeonEnabled = true  
 
 local STOP_DISTANCE = 4         
-local WALK_SPEED = 32           -- Adjustable WalkSpeed (Default Roblox is 16)
-local ATTACK_RANGE = 12         -- Strict range gating: won't attack unless enemy is this close!
-local MAX_DETECTION_DIST = 500  
+local WALK_SPEED = 32           
+local ATTACK_RANGE = 12         
+local MAX_DETECTION_DIST = 1000 -- Boosted default detection distance to prevent stalling
 local M1_SPEED = 0.05            
 local SKILL_INTERVAL = 1.0      
 
 local processedDrops = {}
+local lastMoveToTarget = Vector3.new(0, 0, 0) -- Smooth pathfinding anchor
 
 -- Initialize Path Instance
 local path = PathfindingService:CreatePath({
@@ -42,13 +43,13 @@ local path = PathfindingService:CreatePath({
 
 -- // AUTOMATIC LAYOUT INTERFACE DESIGN // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "SleekPathHub_v15"
+screenGui.Name = "SleekPathHub_v16"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 420, 0, 280) -- Slightly expanded height to cleanly hold new speed row
-mainFrame.Position = UDim2.new(0.5, -210, 0.5, -140) 
+mainFrame.Size = UDim2.new(0, 420, 0, 310) -- Expanded height to cleanly hold the new Scan Range row
+mainFrame.Position = UDim2.new(0.5, -210, 0.5, -155) 
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
@@ -141,7 +142,7 @@ end
 local toggleButton = createSidebarButton("ToggleBtn", "SYSTEM: OFF", Color3.fromRGB(200, 60, 60))
 toggleButton.Size = UDim2.new(1, -16, 0, 30)
 
--- Stop Distance Adjustment Row
+-- Stop Distance Row
 local distanceContainer = Instance.new("Frame")
 distanceContainer.Name = "DistanceContainer"
 distanceContainer.Size = UDim2.new(1, -16, 0, 26)
@@ -179,7 +180,7 @@ plusBtn.TextSize = 16
 plusBtn.Parent = distanceContainer
 Instance.new("UICorner", plusBtn).CornerRadius = UDim.new(0, 5)
 
--- NEW: WalkSpeed Adjustment Row
+-- WalkSpeed Row
 local speedContainer = Instance.new("Frame")
 speedContainer.Name = "SpeedContainer"
 speedContainer.Size = UDim2.new(1, -16, 0, 26)
@@ -216,6 +217,44 @@ speedPlusBtn.Font = Enum.Font.SourceSansBold
 speedPlusBtn.TextSize = 16
 speedPlusBtn.Parent = speedContainer
 Instance.new("UICorner", speedPlusBtn).CornerRadius = UDim.new(0, 5)
+
+-- NEW: Enemy Scan Range Detection Row
+local scanContainer = Instance.new("Frame")
+scanContainer.Name = "ScanContainer"
+scanContainer.Size = UDim2.new(1, -16, 0, 26)
+scanContainer.BackgroundTransparency = 1
+scanContainer.Parent = sidebarFrame
+
+local scanMinusBtn = Instance.new("TextButton")
+scanMinusBtn.Size = UDim2.new(0, 26, 1, 0)
+scanMinusBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+scanMinusBtn.Text = "-"
+scanMinusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+scanMinusBtn.Font = Enum.Font.SourceSansBold
+scanMinusBtn.TextSize = 16
+scanMinusBtn.Parent = scanContainer
+Instance.new("UICorner", scanMinusBtn).CornerRadius = UDim.new(0, 5)
+
+local scanLabel = Instance.new("TextLabel")
+scanLabel.Size = UDim2.new(1, -60, 1, 0)
+scanLabel.Position = UDim2.new(0, 30, 0, 0)
+scanLabel.BackgroundTransparency = 1
+scanLabel.Text = "Scan: " .. tostring(MAX_DETECTION_DIST)
+scanLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+scanLabel.Font = Enum.Font.SourceSansBold
+scanLabel.TextSize = 11
+scanLabel.Parent = scanContainer
+
+local scanPlusBtn = Instance.new("TextButton")
+scanPlusBtn.Size = UDim2.new(0, 26, 1, 0)
+scanPlusBtn.Position = UDim2.new(1, -26, 0, 0)
+scanPlusBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+scanPlusBtn.Text = "+"
+scanPlusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+scanPlusBtn.Font = Enum.Font.SourceSansBold
+scanPlusBtn.TextSize = 16
+scanPlusBtn.Parent = scanContainer
+Instance.new("UICorner", scanPlusBtn).CornerRadius = UDim.new(0, 5)
 
 local equipButton = createSidebarButton("EquipBtn", "Auto-Equip: ON", Color3.fromRGB(60, 150, 200))
 local collectButton = createSidebarButton("CollectBtn", "Auto-Collect: ON", Color3.fromRGB(140, 60, 200))
@@ -260,7 +299,7 @@ refreshPortalsBtn.Parent = contentFrame
 Instance.new("UICorner", refreshPortalsBtn).CornerRadius = UDim.new(0, 5)
 
 local portalScroll = Instance.new("ScrollingFrame")
-portalScroll.Size = UDim2.new(1, -20, 0, 180) -- Increased to match main window size nicely
+portalScroll.Size = UDim2.new(1, -20, 0, 210) -- Adjusted to cleanly align with sidebar
 portalScroll.BackgroundTransparency = 1
 portalScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 portalScroll.ScrollBarThickness = 4
@@ -287,7 +326,6 @@ toggleButton.MouseButton1Click:Connect(function()
     toggleButton.Text = systemEnabled and "SYSTEM: ON" or "SYSTEM: OFF"
     toggleButton.BackgroundColor3 = systemEnabled and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(200, 60, 60)
     
-    -- Safety cleanup: Reset walkspeed back to standard if system goes down
     if not systemEnabled then
         pcall(function()
             local char = player.Character
@@ -303,7 +341,7 @@ equipButton.MouseButton1Click:Connect(function()
     equipButton.BackgroundColor3 = autoEquipEnabled and Color3.fromRGB(60, 150, 200) or Color3.fromRGB(80, 80, 80)
 end)
 
-collectButton.MouseButton1Click:Connect(function()
+collectButton.MouseButton1Connect = collectButton.MouseButton1Click:Connect(function()
     autoCollectEnabled = not autoCollectEnabled
     collectButton.Text = autoCollectEnabled and "Auto-Collect: ON" or "Auto-Collect: OFF"
     collectButton.BackgroundColor3 = autoCollectEnabled and Color3.fromRGB(140, 60, 200) or Color3.fromRGB(80, 80, 80)
@@ -331,7 +369,6 @@ plusBtn.MouseButton1Click:Connect(function()
     distanceLabel.Text = "Dist: " .. tostring(STOP_DISTANCE)
 end)
 
--- WalkSpeed Listeners
 speedMinusBtn.MouseButton1Click:Connect(function()
     WALK_SPEED = math.clamp(WALK_SPEED - 4, 16, 150)
     speedLabel.Text = "Speed: " .. tostring(WALK_SPEED)
@@ -340,6 +377,17 @@ end)
 speedPlusBtn.MouseButton1Click:Connect(function()
     WALK_SPEED = math.clamp(WALK_SPEED + 4, 16, 150)
     speedLabel.Text = "Speed: " .. tostring(WALK_SPEED)
+end)
+
+-- Scan Range Listeners
+scanMinusBtn.MouseButton1Click:Connect(function()
+    MAX_DETECTION_DIST = math.clamp(MAX_DETECTION_DIST - 100, 100, 10000)
+    scanLabel.Text = "Scan: " .. tostring(MAX_DETECTION_DIST)
+end)
+
+scanPlusBtn.MouseButton1Click:Connect(function()
+    MAX_DETECTION_DIST = math.clamp(MAX_DETECTION_DIST + 100, 100, 10000)
+    scanLabel.Text = "Scan: " .. tostring(MAX_DETECTION_DIST)
 end)
 
 -- // PORTAL NAVIGATION BYPASS // --
@@ -409,7 +457,7 @@ local function getClosestEnemy()
     if not playerRoot then return nil end
     
     local closestEnemy = nil
-    local shortestDistance = MAX_DETECTION_DIST
+    local shortestDistance = MAX_DETECTION_DIST -- Dynamically tracks UI input config
 
     for _, obj in ipairs(workspace:GetDescendants()) do
         if isEnemy(obj) then
@@ -435,7 +483,7 @@ task.spawn(function()
     end
 end)
 
--- // PATHFINDING & SPEED ENGINE // --
+-- // OPTIMIZED DELTA SLIDING LOCOMOTION ENGINE // --
 task.spawn(function()
     while true do
         task.wait(0.1) 
@@ -445,7 +493,6 @@ task.spawn(function()
             local root = character and character:FindFirstChild("HumanoidRootPart")
             
             if humanoid and root and humanoid.Health > 0 then
-                -- Dynamically inject the custom WalkSpeed setting
                 humanoid.WalkSpeed = WALK_SPEED
                 
                 local enemyRoot = targetEnemy.HumanoidRootPart
@@ -463,14 +510,27 @@ task.spawn(function()
                             if nextWaypoint.Action == Enum.PathWaypointAction.Jump then
                                 humanoid.Jump = true
                             end
-                            humanoid:MoveTo(nextWaypoint.Position)
+                            
+                            -- FIXED: Only updates MoveTo if target waypoint moves > 1.5 studs. This fixes the stutter completely!
+                            if (nextWaypoint.Position - lastMoveToTarget).Magnitude > 1.5 then
+                                lastMoveToTarget = nextWaypoint.Position
+                                humanoid:MoveTo(nextWaypoint.Position)
+                            end
                         else
-                            humanoid:MoveTo(enemyRoot.Position)
+                            if (enemyRoot.Position - lastMoveToTarget).Magnitude > 1.5 then
+                                lastMoveToTarget = enemyRoot.Position
+                                humanoid:MoveTo(enemyRoot.Position)
+                            end
                         end
                     else
-                        humanoid:MoveTo(enemyRoot.Position)
+                        if (enemyRoot.Position - lastMoveToTarget).Magnitude > 1.5 then
+                            lastMoveToTarget = enemyRoot.Position
+                            humanoid:MoveTo(enemyRoot.Position)
+                        end
                     end
                 else
+                    -- Complete stop & face target safely
+                    lastMoveToTarget = root.Position
                     humanoid:MoveTo(root.Position)
                     root.CFrame = CFrame.lookAt(root.Position, Vector3.new(enemyRoot.Position.X, root.Position.Y, enemyRoot.Position.Z))
                 end
@@ -571,7 +631,6 @@ task.spawn(function()
         local character = player.Character
         local root = character and character:FindFirstChild("HumanoidRootPart")
         
-        -- FIXED: Checks distance to ensure we only swing when within ATTACK_RANGE
         if systemEnabled and targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") and root then
             local currentDistance = (root.Position - targetEnemy.HumanoidRootPart.Position).Magnitude
             if currentDistance <= ATTACK_RANGE then
@@ -609,7 +668,6 @@ task.spawn(function()
             local character = player.Character
             local root = character and character:FindFirstChild("HumanoidRootPart")
             
-            -- FIXED: Only loops and throws out skills when close enough to target
             if systemEnabled and targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") and root then
                 local currentDistance = (root.Position - targetEnemy.HumanoidRootPart.Position).Magnitude
                 if currentDistance <= ATTACK_RANGE then
