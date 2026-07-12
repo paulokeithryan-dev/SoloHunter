@@ -6,15 +6,19 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- // EXPLOIT REMOTES // --
+-- // EXPLOIT REMOTES (Updated with your Cobalt Dumps) // --
 local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
+local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
+local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
+local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 
 -- // STATE FLAGS & CONFIG // --
 local systemEnabled = false
 local autoEquipEnabled = true 
 local autoCollectEnabled = true  
 local autoPotionEnabled = true   
+local autoDungeonEnabled = true  -- New Feature
 
 local HOVER_HEIGHT = 4        
 local MAX_DETECTION_DIST = 300  
@@ -23,13 +27,13 @@ local SKILL_INTERVAL = 1.5
 
 -- // USER INTERFACE CREATION // --
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoCombatUI_v5"
+screenGui.Name = "AutoCombatUI_v6"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- Main Container Frame
+-- Main Container Frame (Height expanded to 245 to fit the Auto-Dungeon toggle)
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 190, 0, 205)
+mainFrame.Size = UDim2.new(0, 190, 0, 245)
 mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
@@ -127,6 +131,7 @@ btnCorner3.Parent = plusBtn
 local equipButton = createButton("EquipBtn", "Auto-Equip: ON", UDim2.new(0, 5, 0, 85), UDim2.new(1, -10, 0, 35), Color3.fromRGB(60, 150, 200))
 local collectButton = createButton("CollectBtn", "Auto-Collect: ON", UDim2.new(0, 5, 0, 125), UDim2.new(1, -10, 0, 35), Color3.fromRGB(140, 60, 200))
 local potionButton = createButton("PotionBtn", "Auto-Potion: ON", UDim2.new(0, 5, 0, 165), UDim2.new(1, -10, 0, 35), Color3.fromRGB(210, 130, 40))
+local dungeonButton = createButton("DungeonBtn", "Auto-Dungeon: ON", UDim2.new(0, 5, 0, 205), UDim2.new(1, -10, 0, 35), Color3.fromRGB(220, 60, 100))
 
 -- // UI INTERACTION LOGIC // --
 minimizeButton.MouseButton1Click:Connect(function()
@@ -161,6 +166,12 @@ potionButton.MouseButton1Click:Connect(function()
     autoPotionEnabled = not autoPotionEnabled
     potionButton.Text = autoPotionEnabled and "Auto-Potion: ON" or "Auto-Potion: OFF"
     potionButton.BackgroundColor3 = autoPotionEnabled and Color3.fromRGB(210, 130, 40) or Color3.fromRGB(100, 100, 100)
+end)
+
+dungeonButton.MouseButton1Click:Connect(function()
+    autoDungeonEnabled = not autoDungeonEnabled
+    dungeonButton.Text = autoDungeonEnabled and "Auto-Dungeon: ON" or "Auto-Dungeon: OFF"
+    dungeonButton.BackgroundColor3 = autoDungeonEnabled and Color3.fromRGB(220, 60, 100) or Color3.fromRGB(100, 100, 100)
 end)
 
 minusBtn.MouseButton1Click:Connect(function()
@@ -227,11 +238,9 @@ RunService.Heartbeat:Connect(function()
         local enemyRoot = targetEnemy.HumanoidRootPart
         local _, boxSize = targetEnemy:GetBoundingBox()
         
-        -- Keeps you directly above the target
         local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
         local targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
         
-        -- FORCED DOWNWARD AIM: Angles the character's forward look vector completely down toward the enemy
         root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
         root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
     end
@@ -258,14 +267,13 @@ task.spawn(function()
     end
 end)
 
--- // FLAWLESS DROP COLLECTION SYSTEM // --
+-- // REAL-TIME DROP COLLECTION // --
 local function processDrop(obj)
     if not systemEnabled or not autoCollectEnabled or not obj then return end
     
     local nameLower = obj.Name:lower()
     local parentNameLower = (obj.Parent and obj.Parent.Name:lower()) or ""
     
-    -- Broadened match filters to catch items named by their drop tier or rarity
     local isDrop = nameLower:find("drop") 
         or nameLower:find("loot") 
         or nameLower:find("item")
@@ -275,7 +283,6 @@ local function processDrop(obj)
         or obj:IsA("TouchTransmitter")
         
     if isDrop then
-        -- Runs inside a non-blocking fast thread to prevent network lagging
         task.spawn(function()
             pcall(function() dropRemote:InvokeServer(obj) end)
             if obj.Parent and obj.Parent:IsA("Model") then
@@ -285,10 +292,8 @@ local function processDrop(obj)
     end
 end
 
--- Real-time Watcher
 workspace.DescendantAdded:Connect(processDrop)
 
--- Continuous Polling Cleanup Loop (In case DescendantAdded misses an unanchored physics item)
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -318,14 +323,32 @@ task.spawn(function()
     end
 end)
 
--- // AUTO M1 CLICK LOOP // --
+-- // UPGRADED DIRECT REMOTE ATTACK LOOP // --
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
         if systemEnabled and targetEnemy then
+            -- Double-Engine Hybrid Attack: Fires the Direct Server Remote AND simulates a client click
+            -- This bypasses client window focus locks and hits with perfect accuracy
+            task.spawn(function()
+                pcall(function() useWeaponRemote:InvokeServer() end)
+            end)
+            
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-            task.wait(0.02)
+            task.wait(0.01)
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        end
+    end
+end)
+
+-- // AUTO-DUNGEON & GATE AUTO-PROGRESSION // --
+task.spawn(function()
+    while true do
+        task.wait(1.5) -- Throttled perfectly to prevent triggering server spam limits
+        if systemEnabled and autoDungeonEnabled then
+            -- Safely tries to auto-start dungeons or accept entry gates if prompts appear
+            task.spawn(pcall, function() startDungeonRemote:InvokeServer() end)
+            task.spawn(pcall, function() enterGateRemote:InvokeServer() end)
         end
     end
 end)
