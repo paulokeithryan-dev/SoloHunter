@@ -27,12 +27,10 @@ local HOVER_HEIGHT = 4
 local autoSkillsEnabled = false
 local SKILL_INTERVAL = 1.5      
 
-local killAuraEnabled = false
-local killAuraRange = 25
-
 local autoPotionEnabled = true   
 local safeSpotEnabled = false
 local safeHpPercent = 25
+local safeSpotActive = false -- Dynamic state driver for anti-cheat bypass
 
 local espEnabled = false
 local autoDungeonEnabled = true  
@@ -47,9 +45,9 @@ local circleAngle = 0
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v14",
+   Name = "Modular Combat Engine v15",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Advanced Vector Profiles Active",
+   LoadingSubtitle = "Anti-Cheat Safe Profile Active",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -119,22 +117,6 @@ CombatTab:CreateToggle({
    Callback = function(Value) autoSkillsEnabled = Value end,
 })
 
-CombatTab:CreateToggle({
-   Name = "Kill Aura (Radius Damage)",
-   CurrentValue = false,
-   Flag = "MCE_KillAura",
-   Callback = function(Value) killAuraEnabled = Value end,
-})
-
-CombatTab:CreateSlider({
-   Name = "Kill Aura Range",
-   Range = {5, 100},
-   Increment = 5,
-   CurrentValue = 25,
-   Flag = "MCE_KillAuraRange",
-   Callback = function(Value) killAuraRange = Value end,
-})
-
 
 -- [UTILITIES & HP TAB]
 UtilityTab:CreateToggle({
@@ -145,10 +127,13 @@ UtilityTab:CreateToggle({
 })
 
 UtilityTab:CreateToggle({
-   Name = "Auto Safe Spot on Low HP",
+   Name = "Auto Safe Spot (Bypass Disconnect)",
    CurrentValue = false,
    Flag = "MCE_SafeSpot",
-   Callback = function(Value) safeSpotEnabled = Value end,
+   Callback = function(Value) 
+       safeSpotEnabled = Value 
+       if not Value then safeSpotActive = false end
+   end,
 })
 
 UtilityTab:CreateSlider({
@@ -306,12 +291,9 @@ end)
 
 -- // SYSTEM MODULES // --
 
--- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE
-local isSafeTeleported = false 
-local returnPosition = nil
-
+-- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE (With Dynamic Safe-Altitude Integration)
 RunService.Heartbeat:Connect(function(deltaTime)
-    if not autoAttackEnabled or isSafeTeleported then return end
+    if not autoAttackEnabled then return end
 
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -322,21 +304,28 @@ RunService.Heartbeat:Connect(function(deltaTime)
         local enemyRoot = targetEnemy.HumanoidRootPart
         local targetPosition
         
+        -- Safe Spot Modification: Swaps standard flight planes for an un-kickable safe altitude matrix
+        local currentAltitude = HOVER_HEIGHT
+        if safeSpotActive then
+            currentAltitude = 120 -- Float safely above striking thresholds to recover HP without teleporting
+        end
+        
         -- Vector Positioning Matrix
         if positioningMode == "Above" then
-            targetPosition = enemyRoot.Position + Vector3.new(0.01, HOVER_HEIGHT, 0)
+            targetPosition = enemyRoot.Position + Vector3.new(0.01, currentAltitude, 0)
         elseif positioningMode == "Circle" then
             circleAngle = circleAngle + (deltaTime * 2.5) 
             local radius = attackDistance
             local offsetX = math.cos(circleAngle) * radius
             local offsetZ = math.sin(circleAngle) * radius
-            targetPosition = enemyRoot.Position + Vector3.new(offsetX, HOVER_HEIGHT, offsetZ)
+            targetPosition = enemyRoot.Position + Vector3.new(offsetX, currentAltitude, offsetZ)
         end
         
-        -- Translation Router
-        if movementMethod == "Teleport" then
+        -- Translation Router (Handles smooth interpolation steps to defeat server anti-cheats)
+        if movementMethod == "Teleport" and not safeSpotActive then
             root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
         else
+            -- Forces a smooth linear vector step when safe spot is recovering or tween is selected
             local currentPos = root.Position
             local travelVector = (targetPosition - currentPos)
             local dist = travelVector.Magnitude
@@ -344,7 +333,8 @@ RunService.Heartbeat:Connect(function(deltaTime)
             if dist <= 1.5 then
                 root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
             else
-                local glideStep = math.min(dist, tweenSpeed * deltaTime)
+                local operationalSpeed = safeSpotActive and 200 or tweenSpeed
+                local glideStep = math.min(dist, operationalSpeed * deltaTime)
                 local calculatedPosition = currentPos + (travelVector.Unit * glideStep)
                 root.CFrame = CFrame.lookAt(calculatedPosition, enemyRoot.Position)
             end
@@ -360,7 +350,7 @@ end)
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
-        if autoAttackEnabled and targetEnemy and not isSafeTeleported then
+        if autoAttackEnabled and targetEnemy and not safeSpotActive then
             local character = player.Character
             if character and character:FindFirstChildOfClass("Tool") then
                 task.spawn(pcall, function() useWeaponRemote:InvokeServer() end)
@@ -372,18 +362,27 @@ task.spawn(function()
     end
 end)
 
--- 3. AUTO SKILLS MODULE
+-- 3. PROXIMITY-BASED AUTO SKILLS MODULE
 local skills = {Enum.KeyCode.F, Enum.KeyCode.R, Enum.KeyCode.C}
 task.spawn(function()
     while true do
         for _, key in ipairs(skills) do
-            if autoSkillsEnabled and targetEnemy and not isSafeTeleported then
+            if autoSkillsEnabled and targetEnemy and not safeSpotActive then
                 local character = player.Character
-                if character and character:FindFirstChildOfClass("Tool") then
-                    VirtualInputManager:SendKeyEvent(true, key, false, game)
-                    task.wait(0.05)
-                    VirtualInputManager:SendKeyEvent(false, key, false, game)
-                    task.wait(SKILL_INTERVAL)
+                local root = character and character:FindFirstChild("HumanoidRootPart")
+                local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart")
+                
+                -- Proximity Verification Check: Only casts keys if character is actively in strike proximity
+                if root and enemyRoot and character:FindFirstChildOfClass("Tool") then
+                    local currentDistance = (root.Position - enemyRoot.Position).Magnitude
+                    if currentDistance <= (attackDistance + 8) then
+                        VirtualInputManager:SendKeyEvent(true, key, false, game)
+                        task.wait(0.05)
+                        VirtualInputManager:SendKeyEvent(false, key, false, game)
+                        task.wait(SKILL_INTERVAL)
+                    else
+                        task.wait(0.2)
+                    end
                 else
                     task.wait(0.2)
                 end
@@ -394,73 +393,45 @@ task.spawn(function()
     end
 end)
 
--- 4. KILL AURA MODULE
-task.spawn(function()
-    while true do
-        task.wait(M1_SPEED)
-        if killAuraEnabled then
-            local character = player.Character
-            local playerRoot = character and character:FindFirstChild("HumanoidRootPart")
-            if playerRoot and character:FindFirstChildOfClass("Tool") then
-                for _, obj in pairs(workspace:GetDescendants()) do
-                    if isEnemy(obj) then
-                        local enemyRoot = obj:FindFirstChild("HumanoidRootPart")
-                        if enemyRoot then
-                            local dist = (playerRoot.Position - enemyRoot.Position).Magnitude
-                            if dist <= killAuraRange then
-                                task.spawn(pcall, function() useWeaponRemote:InvokeServer() end)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-end)
-
--- 5. AUTO POTION MODULE
+-- 4. AUTO POTION MODULE
 task.spawn(function()
     while true do
         task.wait(0.3)
-        if autoPotionEnabled and not isSafeTeleported then
-            local character = player.Character
-            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 then
-                if (humanoid.Health / humanoid.MaxHealth) <= 0.5 then
-                    pcall(function() healRemote:InvokeServer() end)
-                    task.wait(1.5) 
-                end
+        local character = player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if autoPotionEnabled and humanoid and humanoid.Health > 0 then
+            if (humanoid.Health / humanoid.MaxHealth) <= 0.5 then
+                pcall(function() healRemote:InvokeServer() end)
+                task.wait(1.5) 
             end
         end
     end
 end)
 
--- 6. LOW HP SAFE SPOT MODULE
+-- 5. ANTI-KICK AUTO SAFE SPOT MODULE
 task.spawn(function()
     while true do
-        task.wait(0.2)
+        task.wait(0.1)
         if safeSpotEnabled then
             local character = player.Character
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            local root = character and character:FindFirstChild("HumanoidRootPart")
             
-            if humanoid and root and humanoid.Health > 0 then
+            if humanoid and humanoid.Health > 0 then
                 local hpPercent = (humanoid.Health / humanoid.MaxHealth) * 100
-                if hpPercent <= safeHpPercent and not isSafeTeleported then
-                    returnPosition = root.CFrame
-                    isSafeTeleported = true
-                    root.CFrame = root.CFrame + Vector3.new(0, 500, 0)
-                    root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                elseif hpPercent > 75 and isSafeTeleported then
-                    if returnPosition then root.CFrame = returnPosition end
-                    isSafeTeleported = false
+                
+                if hpPercent <= safeHpPercent and not safeSpotActive then
+                    safeSpotActive = true -- Signals translation framework to safely step up altitude
+                elseif hpPercent >= 90 and safeSpotActive then
+                    safeSpotActive = false -- Drops back to custom default hover once health bar is replenished
                 end
             end
+        else
+            safeSpotActive = false
         end
     end
 end)
 
--- 7. AUTO EQUIP MODULE
+-- 6. AUTO EQUIP MODULE
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -477,7 +448,7 @@ task.spawn(function()
     end
 end)
 
--- 8. AUTO-DUNGEON PROGRESSION & RETRY MODULE
+-- 7. AUTO-DUNGEON PROGRESSION & RETRY MODULE
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -485,7 +456,6 @@ task.spawn(function()
         if autoDungeonEnabled then
             local mainGui = player.PlayerGui:FindFirstChild("Main")
             local startBtn = mainGui and mainGui:FindFirstChild("StartBtn")
-            local standardProximityPass = false
             local character = player.Character
             local root = character and character:FindFirstChild("HumanoidRootPart")
             
@@ -499,7 +469,6 @@ task.spawn(function()
                         end
                     end
                 end
-                standardProximityPass = closeLandmark
             end
             
             if startBtn and startBtn.Visible then
@@ -533,7 +502,7 @@ task.spawn(function()
     end
 end)
 
--- 9. ESP MODULE
+-- 8. ESP MODULE
 task.spawn(function()
     while true do
         task.wait(0.5)
