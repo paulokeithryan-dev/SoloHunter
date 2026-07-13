@@ -11,8 +11,8 @@ local player = Players.LocalPlayer
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
-local enterGateRemote = ReplicatedStorage:WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
-local retryDungeonRemote = ReplicatedStorage:WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
+local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
+local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
 -- // INDEPENDENT CONFIG VARIABLES // --
 local autoAttackEnabled = false
@@ -39,15 +39,15 @@ local autoDungeonEnabled = true
 local autoRetryEnabled = false   
 local autoDungeonRange = 50
 
--- // NEW MOVEMENT CONFIGS (v13) // --
-local movementMethod = "Teleport" -- "Teleport" or "Tween"
+-- // MOVEMENT CONFIGS // --
+local movementMethod = "Teleport" 
 local tweenSpeed = 150
-local positioningMode = "Above"   -- "Above" or "Circle"
+local positioningMode = "Above"   
 local circleAngle = 0
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v13",
+   Name = "Modular Combat Engine v14",
    LoadingTitle = "Applying Adjustments...",
    LoadingSubtitle = "Advanced Vector Profiles Active",
    ConfigurationSaving = { 
@@ -306,7 +306,7 @@ end)
 
 -- // SYSTEM MODULES // --
 
--- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE (v13 Engine)
+-- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE
 local isSafeTeleported = false 
 local returnPosition = nil
 
@@ -324,17 +324,16 @@ RunService.Heartbeat:Connect(function(deltaTime)
         
         -- Vector Positioning Matrix
         if positioningMode == "Above" then
-            -- 0.01 X offset blocks lookAt axis alignment spin-out anomalies
             targetPosition = enemyRoot.Position + Vector3.new(0.01, HOVER_HEIGHT, 0)
         elseif positioningMode == "Circle" then
-            circleAngle = circleAngle + (deltaTime * 2.5) -- Dynamic rotation accumulator
+            circleAngle = circleAngle + (deltaTime * 2.5) 
             local radius = attackDistance
             local offsetX = math.cos(circleAngle) * radius
             local offsetZ = math.sin(circleAngle) * radius
             targetPosition = enemyRoot.Position + Vector3.new(offsetX, HOVER_HEIGHT, offsetZ)
         end
         
-        -- Translation Router (Teleport vs smooth linear glide step)
+        -- Translation Router
         if movementMethod == "Teleport" then
             root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
         else
