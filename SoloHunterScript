@@ -15,7 +15,6 @@ local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitFor
 local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
 -- // INDEPENDENT CONFIG VARIABLES // --
-local CONFIG_NAME = "ModularCombatConfig"
 local autoAttackEnabled = false
 local autoAttackRange = 300     
 local autoEquipEnabled = true 
@@ -42,28 +41,34 @@ local autoDungeonRange = 50
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v11",
-   LoadingTitle = "Applying Adjustments...",
+   Name = "Solo Hunter HUB",
+   LoadingTitle = "By Kisso",
    LoadingSubtitle = "Configuration Profile Active",
-   ConfigurationSaving = { Enabled = true, FileName = CONFIG_NAME },
+   ConfigurationSaving = { 
+      Enabled = true, 
+      FolderName = "ModularCombatEngine", 
+      FileName = "Config" 
+   },
 })
 
 -- Tabs
 local CombatTab = Window:CreateTab("Combat & Movement", nil)
 local UtilityTab = Window:CreateTab("Utilities & HP", nil)
 local VisualsTab = Window:CreateTab("Visuals & Dungeons", nil)
-local ConfigTab = Window:CreateTab("Configuration", nil) -- Added Configuration Tab
+local ConfigTab = Window:CreateTab("Configuration", nil)
 
 -- [COMBAT & MOVEMENT TAB]
 CombatTab:CreateToggle({
    Name = "Auto Attack (Lock, Fly & Attack)",
    CurrentValue = false,
+   Flag = "MCE_AutoAttack",
    Callback = function(Value) autoAttackEnabled = Value end,
 })
 
 CombatTab:CreateToggle({
    Name = "Auto-Equip Weapon",
    CurrentValue = true,
+   Flag = "MCE_AutoEquip",
    Callback = function(Value) autoEquipEnabled = Value end,
 })
 
@@ -72,12 +77,14 @@ CombatTab:CreateSlider({
    Range = {10, 5000}, 
    Increment = 50,
    CurrentValue = 300,
+   Flag = "MCE_AttackRange",
    Callback = function(Value) autoAttackRange = Value end,
 })
 
 CombatTab:CreateToggle({
    Name = "Exact Part Alignment (No Hitbox)",
    CurrentValue = false,
+   Flag = "MCE_ExactAlignment",
    Callback = function(Value) exactPartAlignment = Value end,
 })
 
@@ -86,6 +93,7 @@ CombatTab:CreateSlider({
    Range = {1, 15},
    Increment = 1,
    CurrentValue = 3,
+   Flag = "MCE_ProximityDist",
    Callback = function(Value) attackDistance = Value end,
 })
 
@@ -94,18 +102,21 @@ CombatTab:CreateSlider({
    Range = {0, 30},
    Increment = 1,
    CurrentValue = 4,
+   Flag = "MCE_HoverHeight",
    Callback = function(Value) HOVER_HEIGHT = Value end,
 })
 
 CombatTab:CreateToggle({
    Name = "Auto Cast Skills (F, R, C)",
    CurrentValue = false,
+   Flag = "MCE_AutoSkills",
    Callback = function(Value) autoSkillsEnabled = Value end,
 })
 
 CombatTab:CreateToggle({
    Name = "Kill Aura (Radius Damage)",
    CurrentValue = false,
+   Flag = "MCE_KillAura",
    Callback = function(Value) killAuraEnabled = Value end,
 })
 
@@ -114,6 +125,7 @@ CombatTab:CreateSlider({
    Range = {5, 100},
    Increment = 5,
    CurrentValue = 25,
+   Flag = "MCE_KillAuraRange",
    Callback = function(Value) killAuraRange = Value end,
 })
 
@@ -122,12 +134,14 @@ CombatTab:CreateSlider({
 UtilityTab:CreateToggle({
    Name = "Auto-Potion (Below 50% HP)",
    CurrentValue = true,
+   Flag = "MCE_AutoPotion",
    Callback = function(Value) autoPotionEnabled = Value end,
 })
 
 UtilityTab:CreateToggle({
    Name = "Auto Safe Spot on Low HP",
    CurrentValue = false,
+   Flag = "MCE_SafeSpot",
    Callback = function(Value) safeSpotEnabled = Value end,
 })
 
@@ -136,6 +150,7 @@ UtilityTab:CreateSlider({
    Range = {10, 50},
    Increment = 5,
    CurrentValue = 25,
+   Flag = "MCE_SafeSpotHP",
    Callback = function(Value) safeHpPercent = Value end,
 })
 
@@ -144,6 +159,7 @@ UtilityTab:CreateSlider({
 VisualsTab:CreateToggle({
    Name = "Enemy ESP",
    CurrentValue = false,
+   Flag = "MCE_EnemyESP",
    Callback = function(Value) 
        espEnabled = Value 
        if not Value then
@@ -157,12 +173,14 @@ VisualsTab:CreateToggle({
 VisualsTab:CreateToggle({
    Name = "Auto Start Dungeon", 
    CurrentValue = true,
+   Flag = "MCE_AutoDungeon",
    Callback = function(Value) autoDungeonEnabled = Value end,
 })
 
 VisualsTab:CreateToggle({
    Name = "Auto Retry Dungeon", 
    CurrentValue = false,
+   Flag = "MCE_AutoRetry",
    Callback = function(Value) autoRetryEnabled = Value end,
 })
 
@@ -171,30 +189,18 @@ VisualsTab:CreateSlider({
    Range = {10, 200},
    Increment = 10,
    CurrentValue = 50,
+   Flag = "MCE_DungeonRange",
    Callback = function(Value) autoDungeonRange = Value end,
 })
 
 
 -- [CONFIGURATION TAB]
 ConfigTab:CreateButton({
-   Name = "Save Configuration",
-   Callback = function()
-       Rayfield:SaveConfiguration()
-       Rayfield:Notify({
-           Title = "Profile Saved",
-           Content = "Your current custom profile config has been written to JSON.",
-           Duration = 3,
-           Image = 4483362458,
-       })
-   end,
-})
-
-ConfigTab:CreateButton({
    Name = "Reset Configuration",
    Callback = function()
        if delfile then
            pcall(function()
-               delfile("Rayfield/Configs/" .. CONFIG_NAME .. ".json")
+               delfile("ModularCombatEngine/Config.json")
            end)
            Rayfield:Notify({
                Title = "Config Purged",
@@ -262,7 +268,7 @@ end)
 -- // SYSTEM MODULES // --
 
 -- 1. COMBINED MOVEMENT & ALIGNMENT MODULE
-local isSafeTeleported = false -- Upvalued global declaration visibility helper
+local isSafeTeleported = false 
 local returnPosition = nil
 
 RunService.Heartbeat:Connect(function()
@@ -294,15 +300,19 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE
+-- 2. COMBINED AUTO ATTACK MODULE (With Animation Safeguard)
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
         if autoAttackEnabled and targetEnemy and not isSafeTeleported then
-            task.spawn(pcall, function() useWeaponRemote:InvokeServer() end)
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-            task.wait(0.01)
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+            local character = player.Character
+            -- Only trigger if an actual tool/weapon asset is held to suppress asset id 0 errors
+            if character and character:FindFirstChildOfClass("Tool") then
+                task.spawn(pcall, function() useWeaponRemote:InvokeServer() end)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                task.wait(0.01)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+            end
         end
     end
 end)
@@ -313,10 +323,15 @@ task.spawn(function()
     while true do
         for _, key in ipairs(skills) do
             if autoSkillsEnabled and targetEnemy and not isSafeTeleported then
-                VirtualInputManager:SendKeyEvent(true, key, false, game)
-                task.wait(0.05)
-                VirtualInputManager:SendKeyEvent(false, key, false, game)
-                task.wait(SKILL_INTERVAL)
+                local character = player.Character
+                if character and character:FindFirstChildOfClass("Tool") then
+                    VirtualInputManager:SendKeyEvent(true, key, false, game)
+                    task.wait(0.05)
+                    VirtualInputManager:SendKeyEvent(false, key, false, game)
+                    task.wait(SKILL_INTERVAL)
+                else
+                    task.wait(0.2)
+                end
             else
                 task.wait(0.5)
             end
@@ -324,14 +339,14 @@ task.spawn(function()
     end
 end)
 
--- 4. KILL AURA MODULE
+-- 4. KILL AURA MODULE (With Animation Safeguard)
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
         if killAuraEnabled then
             local character = player.Character
             local playerRoot = character and character:FindFirstChild("HumanoidRootPart")
-            if playerRoot then
+            if playerRoot and character:FindFirstChildOfClass("Tool") then
                 for _, obj in pairs(workspace:GetDescendants()) do
                     if isEnemy(obj) then
                         local enemyRoot = obj:FindFirstChild("HumanoidRootPart")
@@ -412,7 +427,6 @@ task.spawn(function()
     while true do
         task.wait(1.5)
         
-        -- Handle Auto Start
         if autoDungeonEnabled then
             local mainGui = player.PlayerGui:FindFirstChild("Main")
             local startBtn = mainGui and mainGui:FindFirstChild("StartBtn")
@@ -443,11 +457,9 @@ task.spawn(function()
             end
         end
         
-        -- Handle Auto Retry (Smart UI Check)
         if autoRetryEnabled then
             local attachedRetryBtn = nil
             
-            -- Recursively looks for a visible retry button within active screen menus
             for _, gui in ipairs(player.PlayerGui:GetChildren()) do
                 if gui:IsA("ScreenGui") and gui.Enabled then
                     local targetBtn = gui:FindFirstChild("RetryBtn", true) or gui:FindFirstChild("Retry", true)
@@ -486,4 +498,5 @@ task.spawn(function()
     end
 end)
 
+-- // LOAD PROFILE DEPENDENCIES // --
 Rayfield:LoadConfiguration()
