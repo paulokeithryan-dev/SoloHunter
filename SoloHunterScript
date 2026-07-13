@@ -1,190 +1,152 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
 
--- // EXPLOIT REMOTES (Updated with your Cobalt Dumps) // --
-local dropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
+-- // EXPLOIT REMOTES // --
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 
--- // STATE FLAGS & CONFIG // --
+-- // CONFIG VARIABLES // --
 local systemEnabled = false
 local autoEquipEnabled = true 
-local autoCollectEnabled = true  
 local autoPotionEnabled = true   
-local autoDungeonEnabled = true  -- New Feature
-
+local autoDungeonEnabled = true  
 local HOVER_HEIGHT = 4         
 local MAX_DETECTION_DIST = 300  
 local M1_SPEED = 0.1            
 local SKILL_INTERVAL = 1.5      
 
--- // USER INTERFACE CREATION // --
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoCombatUI_v6"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = playerGui
+-- New Configs
+local espEnabled = false
+local killAuraEnabled = false
+local killAuraRange = 25
+local autoDungeonRange = 50
+local safeSpotEnabled = false
+local safeHpPercent = 25
+local exactPartAlignment = false
+local attackDistance = 3
 
--- Main Container Frame (Height expanded to 245 to fit the Auto-Dungeon toggle)
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 190, 0, 245)
-mainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
-mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-mainFrame.BorderSizePixel = 0
-mainFrame.Active = true
-mainFrame.Draggable = false 
-mainFrame.Parent = screenGui
+-- // RAYFIELD UI SETUP // --
+local Window = Rayfield:CreateWindow({
+   Name = "AutoCombat Engine v7",
+   LoadingTitle = "Assembling Systems...",
+   LoadingSubtitle = "Rayfield Edition",
+   ConfigurationSaving = { Enabled = true, FileName = "CombatEngineConfig" },
+})
 
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 8)
-uiCorner.Parent = mainFrame
+local MainTab = Window:CreateTab("Automation", nil)
+local CombatTab = Window:CreateTab("Combat Mods", nil)
+local VisualsTab = Window:CreateTab("Visuals", nil)
 
--- Floating Icon
-local floatingIcon = Instance.new("TextButton")
-floatingIcon.Name = "FloatingIcon"
-floatingIcon.Size = UDim2.new(0, 50, 0, 50)
-floatingIcon.Position = UDim2.new(0.1, 0, 0.1, 0) 
-floatingIcon.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-floatingIcon.Text = "MENU"
-floatingIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
-floatingIcon.Font = Enum.Font.SourceSansBold
-floatingIcon.TextSize = 14
-floatingIcon.Visible = false
-floatingIcon.Parent = screenGui
+-- [AUTOMATION TAB]
+MainTab:CreateToggle({
+   Name = "Enable System Master Switch",
+   CurrentValue = false,
+   Callback = function(Value) systemEnabled = Value end,
+})
 
-local iconCorner = Instance.new("UICorner")
-iconCorner.CornerRadius = UDim.new(0, 25) 
-iconCorner.Parent = floatingIcon
+MainTab:CreateToggle({
+   Name = "Exact Part Alignment (Bypass Hitbox)",
+   CurrentValue = false,
+   Callback = function(Value) exactPartAlignment = Value end,
+})
 
-local iconStroke = Instance.new("UIStroke")
-iconStroke.Color = Color3.fromRGB(140, 60, 200)
-iconStroke.Thickness = 2
-iconStroke.Parent = floatingIcon
+MainTab:CreateSlider({
+   Name = "Attack Proximity Distance",
+   Range = {1, 15},
+   Increment = 1,
+   CurrentValue = 3,
+   Callback = function(Value) attackDistance = Value end,
+})
 
--- Helper function for standard buttons
-local function createButton(name, text, pos, size, color)
-    local btn = Instance.new("TextButton")
-    btn.Name = name
-    btn.Size = size
-    btn.Position = pos
-    btn.BackgroundColor3 = color
-    btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.SourceSansBold
-    btn.TextSize = 14
-    btn.Parent = mainFrame
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
-    return btn
-end
+MainTab:CreateSlider({
+   Name = "Classic Hover Height",
+   Range = {0, 30},
+   Increment = 1,
+   CurrentValue = 4,
+   Callback = function(Value) HOVER_HEIGHT = Value end,
+})
 
--- UI Buttons
-local toggleButton = createButton("ToggleBtn", "SYSTEM: OFF", UDim2.new(0, 5, 0, 5), UDim2.new(1, -45, 0, 35), Color3.fromRGB(200, 60, 60))
-local minimizeButton = createButton("MinimizeBtn", "—", UDim2.new(1, -35, 0, 5), UDim2.new(0, 30, 0, 35), Color3.fromRGB(50, 50, 50))
+-- [COMBAT TAB]
+CombatTab:CreateToggle({
+   Name = "Kill Aura",
+   CurrentValue = false,
+   Callback = function(Value) killAuraEnabled = Value end,
+})
 
-local minusBtn = Instance.new("TextButton")
-minusBtn.Size = UDim2.new(0, 30, 0, 35)
-minusBtn.Position = UDim2.new(0, 5, 0, 45)
-minusBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-minusBtn.Text = "-"
-minusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-minusBtn.Font = Enum.Font.SourceSansBold
-minusBtn.TextSize = 18
-minusBtn.Parent = mainFrame
+CombatTab:CreateSlider({
+   Name = "Kill Aura Range",
+   Range = {5, 100},
+   Increment = 5,
+   CurrentValue = 25,
+   Callback = function(Value) killAuraRange = Value end,
+})
 
-local btnCorner2 = Instance.new("UICorner")
-btnCorner2.CornerRadius = UDim.new(0, 6)
-btnCorner2.Parent = minusBtn
+CombatTab:CreateToggle({
+   Name = "Auto Safe Spot on Low HP",
+   CurrentValue = false,
+   Callback = function(Value) safeSpotEnabled = Value end,
+})
 
-local heightLabel = Instance.new("TextLabel")
-heightLabel.Size = UDim2.new(1, -80, 0, 35)
-heightLabel.Position = UDim2.new(0, 40, 0, 45)
-heightLabel.BackgroundTransparency = 1
-heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
-heightLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-heightLabel.Font = Enum.Font.SourceSansBold
-heightLabel.TextSize = 14
-heightLabel.Parent = mainFrame
+CombatTab:CreateSlider({
+   Name = "Safe Spot Trigger HP %",
+   Range = {10, 50},
+   Increment = 5,
+   CurrentValue = 25,
+   Callback = function(Value) safeHpPercent = Value end,
+})
 
-local plusBtn = Instance.new("TextButton")
-plusBtn.Size = UDim2.new(0, 30, 0, 35)
-plusBtn.Position = UDim2.new(1, -35, 0, 45)
-plusBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-plusBtn.Text = "+"
-plusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-plusBtn.Font = Enum.Font.SourceSansBold
-plusBtn.TextSize = 18
-plusBtn.Parent = mainFrame
+CombatTab:CreateToggle({
+   Name = "Auto-Equip Weapon",
+   CurrentValue = true,
+   Callback = function(Value) autoEquipEnabled = Value end,
+})
 
-local btnCorner3 = Instance.new("UICorner")
-btnCorner3.CornerRadius = UDim.new(0, 6)
-btnCorner3.Parent = plusBtn
+CombatTab:CreateToggle({
+   Name = "Auto-Potion",
+   CurrentValue = true,
+   Callback = function(Value) autoPotionEnabled = Value end,
+})
 
-local equipButton = createButton("EquipBtn", "Auto-Equip: ON", UDim2.new(0, 5, 0, 85), UDim2.new(1, -10, 0, 35), Color3.fromRGB(60, 150, 200))
-local collectButton = createButton("CollectBtn", "Auto-Collect: ON", UDim2.new(0, 5, 0, 125), UDim2.new(1, -10, 0, 35), Color3.fromRGB(140, 60, 200))
-local potionButton = createButton("PotionBtn", "Auto-Potion: ON", UDim2.new(0, 5, 0, 165), UDim2.new(1, -10, 0, 35), Color3.fromRGB(210, 130, 40))
-local dungeonButton = createButton("DungeonBtn", "Auto-Dungeon: ON", UDim2.new(0, 5, 0, 205), UDim2.new(1, -10, 0, 35), Color3.fromRGB(220, 60, 100))
+-- [DUNGEON & VISUALS TAB]
+VisualsTab:CreateToggle({
+   Name = "Enemy ESP",
+   CurrentValue = false,
+   Callback = function(Value) 
+       espEnabled = Value 
+       if not Value then
+           for _, v in ipairs(workspace:GetDescendants()) do
+               if v.Name == "CombatEngineESP" then v:Destroy() end
+           end
+       end
+   end,
+})
 
--- // UI INTERACTION LOGIC // --
-minimizeButton.MouseButton1Click:Connect(function()
-    mainFrame.Visible = false
-    floatingIcon.Visible = true
-end)
+VisualsTab:CreateToggle({
+   Name = "Auto-Dungeon Core",
+   CurrentValue = true,
+   Callback = function(Value) autoDungeonEnabled = Value end,
+})
 
-floatingIcon.MouseButton1Click:Connect(function()
-    floatingIcon.Visible = false
-    mainFrame.Visible = true
-end)
+VisualsTab:CreateSlider({
+   Name = "Auto Dungeon Trigger Range",
+   Range = {10, 200},
+   Increment = 10,
+   CurrentValue = 50,
+   Callback = function(Value) autoDungeonRange = Value end,
+})
 
-toggleButton.MouseButton1Click:Connect(function()
-    systemEnabled = not systemEnabled
-    toggleButton.Text = systemEnabled and "SYSTEM: ON" or "SYSTEM: OFF"
-    toggleButton.BackgroundColor3 = systemEnabled and Color3.fromRGB(60, 200, 60) or Color3.fromRGB(200, 60, 60)
-end)
 
-equipButton.MouseButton1Click:Connect(function()
-    autoEquipEnabled = not autoEquipEnabled
-    equipButton.Text = autoEquipEnabled and "Auto-Equip: ON" or "Auto-Equip: OFF"
-    equipButton.BackgroundColor3 = autoEquipEnabled and Color3.fromRGB(60, 150, 200) or Color3.fromRGB(100, 100, 100)
-end)
+-- // CORE UTILITIES & TARGETING // --
+local targetEnemy = nil
 
-collectButton.MouseButton1Click:Connect(function()
-    autoCollectEnabled = not autoCollectEnabled
-    collectButton.Text = autoCollectEnabled and "Auto-Collect: ON" or "Auto-Collect: OFF"
-    collectButton.BackgroundColor3 = autoCollectEnabled and Color3.fromRGB(140, 60, 200) or Color3.fromRGB(100, 100, 100)
-end)
-
-potionButton.MouseButton1Click:Connect(function()
-    autoPotionEnabled = not autoPotionEnabled
-    potionButton.Text = autoPotionEnabled and "Auto-Potion: ON" or "Auto-Potion: OFF"
-    potionButton.BackgroundColor3 = autoPotionEnabled and Color3.fromRGB(210, 130, 40) or Color3.fromRGB(100, 100, 100)
-end)
-
-dungeonButton.MouseButton1Click:Connect(function()
-    autoDungeonEnabled = not autoDungeonEnabled
-    dungeonButton.Text = autoDungeonEnabled and "Auto-Dungeon: ON" or "Auto-Dungeon: OFF"
-    dungeonButton.BackgroundColor3 = autoDungeonEnabled and Color3.fromRGB(220, 60, 100) or Color3.fromRGB(100, 100, 100)
-end)
-
-minusBtn.MouseButton1Click:Connect(function()
-    HOVER_HEIGHT = math.clamp(HOVER_HEIGHT - 1, 0, 30)
-    heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
-end)
-
-plusBtn.MouseButton1Click:Connect(function()
-    HOVER_HEIGHT = math.clamp(HOVER_HEIGHT + 1, 0, 30)
-    heightLabel.Text = "Height: " .. tostring(HOVER_HEIGHT)
-end)
-
--- // COMBAT & TARGETING SYSTEM // --
 local function isEnemy(model)
     if model:IsA("Model") and model ~= player.Character then
         local humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -199,15 +161,13 @@ end
 local function getClosestEnemy()
     local character = player.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
-    
     local playerRoot = character.HumanoidRootPart
     local closestEnemy = nil
     local shortestDistance = MAX_DETECTION_DIST
 
     for _, obj in pairs(workspace:GetDescendants()) do
         if isEnemy(obj) then
-            local enemyRoot = obj.HumanoidRootPart
-            local distance = (playerRoot.Position - enemyRoot.Position).Magnitude
+            local distance = (playerRoot.Position - obj.HumanoidRootPart.Position).Magnitude
             if distance < shortestDistance then
                 shortestDistance = distance
                 closestEnemy = obj
@@ -217,36 +177,113 @@ local function getClosestEnemy()
     return closestEnemy
 end
 
--- // POSITIONING & AIMING LOOP // --
-local targetEnemy = nil
 
--- Throttled Target Locator Thread to resolve FPS drops/crashes
+-- // RUNNING ENGINE SYSTEMS // --
+
+-- ESP Loop
 task.spawn(function()
     while true do
-        if systemEnabled then
-            targetEnemy = getClosestEnemy()
-        else
-            targetEnemy = nil
+        task.wait(0.5)
+        if espEnabled then
+            for _, obj in pairs(workspace:GetDescendants()) do
+                if isEnemy(obj) and not obj:FindFirstChild("CombatEngineESP") then
+                    local highlight = Instance.new("Highlight")
+                    highlight.Name = "CombatEngineESP"
+                    highlight.FillColor = Color3.fromRGB(240, 60, 60)
+                    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    highlight.FillTransparency = 0.6
+                    highlight.Adornee = obj
+                    highlight.Parent = obj
+                end
+            end
         end
+    end
+end)
+
+-- Kill Aura Processing Thread
+task.spawn(function()
+    while true do
+        task.wait(M1_SPEED)
+        if systemEnabled and killAuraEnabled then
+            local character = player.Character
+            local playerRoot = character and character:FindFirstChild("HumanoidRootPart")
+            if playerRoot then
+                for _, obj in pairs(workspace:GetDescendants()) do
+                    if isEnemy(obj) then
+                        local enemyRoot = obj:FindFirstChild("HumanoidRootPart")
+                        if enemyRoot then
+                            local dist = (playerRoot.Position - enemyRoot.Position).Magnitude
+                            if dist <= killAuraRange then
+                                task.spawn(pcall, function() useWeaponRemote:InvokeServer() end)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Low HP Safe Spot Loop
+local isSafeTeleported = false
+local returnPosition = nil
+
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if systemEnabled and safeSpotEnabled then
+            local character = player.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            local root = character and character:FindFirstChild("HumanoidRootPart")
+            
+            if humanoid and root and humanoid.Health > 0 then
+                local hpPercent = (humanoid.Health / humanoid.MaxHealth) * 100
+                if hpPercent <= safeHpPercent and not isSafeTeleported then
+                    returnPosition = root.CFrame
+                    isSafeTeleported = true
+                    root.CFrame = root.CFrame + Vector3.new(0, 500, 0)
+                    root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                elseif hpPercent > 75 and isSafeTeleported then
+                    if returnPosition then root.CFrame = returnPosition end
+                    isSafeTeleported = false
+                end
+            end
+        end
+    end
+end)
+
+-- Throttled Target Tracking Thread
+task.spawn(function()
+    while true do
+        if systemEnabled then targetEnemy = getClosestEnemy() else targetEnemy = nil end
         task.wait(0.1)
     end
 end)
 
+-- Positioning & Alignment Loop (Heartbeat-Driven)
 RunService.Heartbeat:Connect(function()
-    if not systemEnabled then return end
+    if not systemEnabled or isSafeTeleported then return end
 
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    
     if not root or (humanoid and humanoid.Health <= 0) then return end
     
     if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") and targetEnemy:FindFirstChildOfClass("Humanoid") and targetEnemy:FindFirstChildOfClass("Humanoid").Health > 0 then
         local enemyRoot = targetEnemy.HumanoidRootPart
-        local _, boxSize = targetEnemy:GetBoundingBox()
+        local targetPosition
         
-        local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
-        local targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
+        if exactPartAlignment then
+            -- Projects movement perfectly calculated down to the precise part coordinate
+            local direction = (root.Position - enemyRoot.Position).Unit
+            if direction.Magnitude == 0 or tostring(direction) == "NAN" then direction = Vector3.new(0,0,1) end
+            targetPosition = enemyRoot.Position + (direction * attackDistance)
+        else
+            -- Traditional spatial calculation fallback box layout
+            local _, boxSize = targetEnemy:GetBoundingBox()
+            local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
+            targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
+        end
         
         root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
         root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
@@ -255,20 +292,16 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- // AUTO-POTION LOOP // --
+-- Auto Potion Loop
 task.spawn(function()
     while true do
         task.wait(0.3)
-        if systemEnabled and autoPotionEnabled then
+        if systemEnabled and autoPotionEnabled and not isSafeTeleported then
             local character = player.Character
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            
             if humanoid and humanoid.Health > 0 then
-                local hpPercent = humanoid.Health / humanoid.MaxHealth
-                if hpPercent <= 0.5 then
-                    pcall(function()
-                        healRemote:InvokeServer()
-                    end)
+                if (humanoid.Health / humanoid.MaxHealth) <= 0.5 then
+                    pcall(function() healRemote:InvokeServer() end)
                     task.wait(1.5) 
                 end
             end
@@ -276,67 +309,14 @@ task.spawn(function()
     end
 end)
 
--- // REAL-TIME DROP COLLECTION // --
-local function processDrop(obj)
-    if not systemEnabled or not autoCollectEnabled or not obj then return end
-    
-    -- High Performance Proximity Prompt Triggering
-    if obj:IsA("ProximityPrompt") then
-        task.spawn(function()
-            if fireproximityprompt then
-                fireproximityprompt(obj)
-            else
-                pcall(function() dropRemote:InvokeServer(obj) end)
-                if obj.Parent and obj.Parent:IsA("Model") then
-                    pcall(function() dropRemote:InvokeServer(obj.Parent) end)
-                end
-            end
-        end)
-        return
-    end
-
-    local nameLower = obj.Name:lower()
-    local parentNameLower = (obj.Parent and obj.Parent.Name:lower()) or ""
-    
-    local isDrop = nameLower:find("drop") 
-        or nameLower:find("loot") 
-        or nameLower:find("item")
-        or parentNameLower:find("drop") 
-        or parentNameLower:find("loot")
-        or obj:IsA("TouchTransmitter")
-        
-    if isDrop then
-        task.spawn(function()
-            pcall(function() dropRemote:InvokeServer(obj) end)
-            if obj.Parent and obj.Parent:IsA("Model") then
-                pcall(function() dropRemote:InvokeServer(obj.Parent) end)
-            end
-        end)
-    end
-end
-
-workspace.DescendantAdded:Connect(processDrop)
-
-task.spawn(function()
-    while true do
-        task.wait(0.5)
-        if systemEnabled and autoCollectEnabled then
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                processDrop(obj)
-            end
-        end
-    end
-end)
-
--- // AUTO WEAPON EQUIP LOOP // --
+-- Auto Equip Loop
 task.spawn(function()
     while true do
         task.wait(0.5)
         if systemEnabled and autoEquipEnabled then
             local character = player.Character
             if character and character:FindFirstChildOfClass("Humanoid") and character.Humanoid.Health > 0 then
-                local holdingTool = character:FindFirstChildOfClass("Tool")
-                if not holdingTool then
+                if not character:FindFirstChildOfClass("Tool") then
                     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
                     task.wait(0.02)
                     VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
@@ -346,17 +326,12 @@ task.spawn(function()
     end
 end)
 
--- // UPGRADED DIRECT REMOTE ATTACK LOOP // --
+-- Base Remote Combat Loop
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
-        if systemEnabled and targetEnemy then
-            -- Double-Engine Hybrid Attack: Fires the Direct Server Remote AND simulates a client click
-            -- This bypasses client window focus locks and hits with perfect accuracy
-            task.spawn(function()
-                pcall(function() useWeaponRemote:InvokeServer() end)
-            end)
-            
+        if systemEnabled and targetEnemy and not isSafeTeleported then
+            task.spawn(pcall, function() useWeaponRemote:InvokeServer() end)
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
             task.wait(0.01)
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
@@ -364,20 +339,39 @@ task.spawn(function()
     end
 end)
 
--- // AUTO-DUNGEON & GATE AUTO-PROGRESSION // --
+-- Auto-Dungeon Loop (Gated by UI visibility and your new custom distance checks)
 task.spawn(function()
     while true do
-        task.wait(1.5) -- Throttled perfectly to prevent triggering server spam limits
+        task.wait(1.5)
         if systemEnabled and autoDungeonEnabled then
-            -- Verify visible layout presence prior to calling Remotes
-            local mainGui = playerGui:FindFirstChild("Main")
+            local mainGui = player.PlayerGui:FindFirstChild("Main")
             local startBtn = mainGui and mainGui:FindFirstChild("StartBtn")
             
+            -- Scan area for distance requirements to dungeon landmarks if applicable
+            local standardProximityPass = false
+            local character = player.Character
+            local root = character and character:FindFirstChild("HumanoidRootPart")
+            
+            if root then
+                -- Fallback to bypass restriction if specific portals aren't named in workspace
+                local closeLandmark = false
+                for _, element in ipairs(workspace:GetChildren()) do
+                    if (element.Name:lower():find("gate") or element.Name:lower():find("dungeon")) and element:IsA("BasePart") then
+                        if (root.Position - element.Position).Magnitude <= autoDungeonRange then
+                            closeLandmark = true
+                            break
+                        end
+                    end
+                end
+                standardProximityPass = closeLandmark
+            end
+            
+            -- Execute actions if conditions clear
             if startBtn and startBtn.Visible then
                 task.spawn(pcall, function() startDungeonRemote:InvokeServer() end)
             end
             
-            local gateGui = playerGui:FindFirstChild("Gate")
+            local gateGui = player.PlayerGui:FindFirstChild("Gate")
             if gateGui and (gateGui.Enabled or (gateGui:FindFirstChild("Main") and gateGui.Main.Visible)) then
                 task.spawn(pcall, function() enterGateRemote:InvokeServer() end)
             end
@@ -385,17 +379,15 @@ task.spawn(function()
     end
 end)
 
--- // AUTO SKILL CAST LOOP // --
+-- Auto Skill Loop
 local skills = {Enum.KeyCode.F, Enum.KeyCode.R, Enum.KeyCode.C}
-
 task.spawn(function()
     while true do
         for _, key in ipairs(skills) do
-            if systemEnabled and targetEnemy then
+            if systemEnabled and targetEnemy and not isSafeTeleported then
                 VirtualInputManager:SendKeyEvent(true, key, false, game)
                 task.wait(0.05)
                 VirtualInputManager:SendKeyEvent(false, key, false, game)
-                
                 task.wait(SKILL_INTERVAL)
             else
                 task.wait(0.5)
@@ -403,3 +395,5 @@ task.spawn(function()
         end
     end
 end)
+
+Rayfield:LoadConfiguration()
