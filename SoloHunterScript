@@ -11,8 +11,8 @@ local player = Players.LocalPlayer
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
-local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
-local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
+local enterGateRemote = ReplicatedStorage:WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
+local retryDungeonRemote = ReplicatedStorage:WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
 -- // INDEPENDENT CONFIG VARIABLES // --
 local autoAttackEnabled = false
@@ -39,11 +39,17 @@ local autoDungeonEnabled = true
 local autoRetryEnabled = false   
 local autoDungeonRange = 50
 
+-- // NEW MOVEMENT CONFIGS (v13) // --
+local movementMethod = "Teleport" -- "Teleport" or "Tween"
+local tweenSpeed = 150
+local positioningMode = "Above"   -- "Above" or "Circle"
+local circleAngle = 0
+
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Solo Hunter HUB",
-   LoadingTitle = "By Kisso",
-   LoadingSubtitle = "Configuration Profile Active",
+   Name = "Modular Combat Engine v13",
+   LoadingTitle = "Applying Adjustments...",
+   LoadingSubtitle = "Advanced Vector Profiles Active",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -195,6 +201,39 @@ VisualsTab:CreateSlider({
 
 
 -- [CONFIGURATION TAB]
+ConfigTab:CreateSection("Movement Settings")
+
+ConfigTab:CreateDropdown({
+   Name = "Movement Method",
+   Options = {"Teleport", "Tween"},
+   CurrentOption = {"Teleport"},
+   Flag = "MCE_MovementMethod",
+   Callback = function(Option) 
+       movementMethod = type(Option) == "table" and Option[1] or Option 
+   end,
+})
+
+ConfigTab:CreateSlider({
+   Name = "Tween Speed",
+   Range = {25, 500},
+   Increment = 25,
+   CurrentValue = 150,
+   Flag = "MCE_TweenSpeed",
+   Callback = function(Value) tweenSpeed = Value end,
+})
+
+ConfigTab:CreateDropdown({
+   Name = "Positioning Mode",
+   Options = {"Above", "Circle"},
+   CurrentOption = {"Above"},
+   Flag = "MCE_PositioningMode",
+   Callback = function(Option) 
+       positioningMode = type(Option) == "table" and Option[1] or Option 
+   end,
+})
+
+ConfigTab:CreateSection("Profile Cache Management")
+
 ConfigTab:CreateButton({
    Name = "Reset Configuration",
    Callback = function()
@@ -267,11 +306,11 @@ end)
 
 -- // SYSTEM MODULES // --
 
--- 1. COMBINED MOVEMENT & ALIGNMENT MODULE
+-- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE (v13 Engine)
 local isSafeTeleported = false 
 local returnPosition = nil
 
-RunService.Heartbeat:Connect(function()
+RunService.Heartbeat:Connect(function(deltaTime)
     if not autoAttackEnabled or isSafeTeleported then return end
 
     local character = player.Character
@@ -283,30 +322,47 @@ RunService.Heartbeat:Connect(function()
         local enemyRoot = targetEnemy.HumanoidRootPart
         local targetPosition
         
-        if exactPartAlignment then
-            local direction = (root.Position - enemyRoot.Position).Unit
-            if direction.Magnitude == 0 or tostring(direction) == "NAN" then direction = Vector3.new(0,0,1) end
-            targetPosition = enemyRoot.Position + (direction * attackDistance)
-        else
-            local _, boxSize = targetEnemy:GetBoundingBox()
-            local targetY = enemyRoot.Position.Y + (boxSize.Y / 2) + HOVER_HEIGHT
-            targetPosition = Vector3.new(enemyRoot.Position.X, targetY, enemyRoot.Position.Z)
+        -- Vector Positioning Matrix
+        if positioningMode == "Above" then
+            -- 0.01 X offset blocks lookAt axis alignment spin-out anomalies
+            targetPosition = enemyRoot.Position + Vector3.new(0.01, HOVER_HEIGHT, 0)
+        elseif positioningMode == "Circle" then
+            circleAngle = circleAngle + (deltaTime * 2.5) -- Dynamic rotation accumulator
+            local radius = attackDistance
+            local offsetX = math.cos(circleAngle) * radius
+            local offsetZ = math.sin(circleAngle) * radius
+            targetPosition = enemyRoot.Position + Vector3.new(offsetX, HOVER_HEIGHT, offsetZ)
         end
         
-        root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
+        -- Translation Router (Teleport vs smooth linear glide step)
+        if movementMethod == "Teleport" then
+            root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
+        else
+            local currentPos = root.Position
+            local travelVector = (targetPosition - currentPos)
+            local dist = travelVector.Magnitude
+            
+            if dist <= 1.5 then
+                root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
+            else
+                local glideStep = math.min(dist, tweenSpeed * deltaTime)
+                local calculatedPosition = currentPos + (travelVector.Unit * glideStep)
+                root.CFrame = CFrame.lookAt(calculatedPosition, enemyRoot.Position)
+            end
+        end
+        
         root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
     else
         targetEnemy = nil
     end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE (With Animation Safeguard)
+-- 2. COMBINED AUTO ATTACK MODULE
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
         if autoAttackEnabled and targetEnemy and not isSafeTeleported then
             local character = player.Character
-            -- Only trigger if an actual tool/weapon asset is held to suppress asset id 0 errors
             if character and character:FindFirstChildOfClass("Tool") then
                 task.spawn(pcall, function() useWeaponRemote:InvokeServer() end)
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
@@ -339,7 +395,7 @@ task.spawn(function()
     end
 end)
 
--- 4. KILL AURA MODULE (With Animation Safeguard)
+-- 4. KILL AURA MODULE
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
