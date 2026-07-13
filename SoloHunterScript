@@ -14,14 +14,14 @@ local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):Wait
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 
 -- // INDEPENDENT CONFIG VARIABLES // --
-local targetLockEnabled = false
+local autoAttackEnabled = false
+local autoAttackRange = 300     -- New: Adjustable detection/lock-on range
+local autoEquipEnabled = true 
+local M1_SPEED = 0.1            
+
 local exactPartAlignment = false
 local attackDistance = 3
 local HOVER_HEIGHT = 4         
-local MAX_DETECTION_DIST = 300  
-
-local autoAttackEnabled = false
-local M1_SPEED = 0.1            
 
 local autoSkillsEnabled = false
 local SKILL_INTERVAL = 1.5      
@@ -30,8 +30,6 @@ local killAuraEnabled = false
 local killAuraRange = 25
 
 local autoPotionEnabled = true   
-local autoEquipEnabled = true 
-
 local safeSpotEnabled = false
 local safeHpPercent = 25
 
@@ -41,31 +39,45 @@ local autoDungeonRange = 50
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v8",
-   LoadingTitle = "Loading Independent Modules...",
-   LoadingSubtitle = "Clean Edition",
+   Name = "Modular Combat Engine v9",
+   LoadingTitle = "Applying Adjustments...",
+   LoadingSubtitle = "Streamlined Edition",
    ConfigurationSaving = { Enabled = true, FileName = "ModularCombatConfig" },
 })
 
-local MovementTab = Window:CreateTab("Movement & Fly", nil)
-local CombatTab = Window:CreateTab("Combat & Skills", nil)
+-- Merged Tabs
+local CombatTab = Window:CreateTab("Combat & Movement", nil)
 local UtilityTab = Window:CreateTab("Utilities & HP", nil)
 local VisualsTab = Window:CreateTab("Visuals & Dungeons", nil)
 
--- [MOVEMENT & FLY TAB]
-MovementTab:CreateToggle({
-   Name = "Target Lock & Fly",
+-- [COMBAT & MOVEMENT TAB]
+CombatTab:CreateToggle({
+   Name = "Auto Attack (Lock, Fly & Attack)",
    CurrentValue = false,
-   Callback = function(Value) targetLockEnabled = Value end,
+   Callback = function(Value) autoAttackEnabled = Value end,
 })
 
-MovementTab:CreateToggle({
+CombatTab:CreateToggle({
+   Name = "Auto-Equip Weapon",
+   CurrentValue = true,
+   Callback = function(Value) autoEquipEnabled = Value end,
+})
+
+CombatTab:CreateSlider({
+   Name = "Auto Attack Detection Range",
+   Range = {10, 1000},
+   Increment = 10,
+   CurrentValue = 300,
+   Callback = function(Value) autoAttackRange = Value end,
+})
+
+CombatTab:CreateToggle({
    Name = "Exact Part Alignment (No Hitbox)",
    CurrentValue = false,
    Callback = function(Value) exactPartAlignment = Value end,
 })
 
-MovementTab:CreateSlider({
+CombatTab:CreateSlider({
    Name = "Attack Proximity Distance",
    Range = {1, 15},
    Increment = 1,
@@ -73,19 +85,12 @@ MovementTab:CreateSlider({
    Callback = function(Value) attackDistance = Value end,
 })
 
-MovementTab:CreateSlider({
+CombatTab:CreateSlider({
    Name = "Classic Hover Height",
    Range = {0, 30},
    Increment = 1,
    CurrentValue = 4,
    Callback = function(Value) HOVER_HEIGHT = Value end,
-})
-
--- [COMBAT & SKILLS TAB]
-CombatTab:CreateToggle({
-   Name = "Auto Attack (M1 + Remote)",
-   CurrentValue = false,
-   Callback = function(Value) autoAttackEnabled = Value end,
 })
 
 CombatTab:CreateToggle({
@@ -108,6 +113,7 @@ CombatTab:CreateSlider({
    Callback = function(Value) killAuraRange = Value end,
 })
 
+
 -- [UTILITIES & HP TAB]
 UtilityTab:CreateToggle({
    Name = "Auto-Potion (Below 50% HP)",
@@ -129,11 +135,6 @@ UtilityTab:CreateSlider({
    Callback = function(Value) safeHpPercent = Value end,
 })
 
-UtilityTab:CreateToggle({
-   Name = "Auto-Equip Weapon",
-   CurrentValue = true,
-   Callback = function(Value) autoEquipEnabled = Value end,
-})
 
 -- [VISUALS & DUNGEONS TAB]
 VisualsTab:CreateToggle({
@@ -183,12 +184,14 @@ local function getClosestEnemy()
     if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
     local playerRoot = character.HumanoidRootPart
     local closestEnemy = nil
-    local shortestDistance = MAX_DETECTION_DIST
+    
+    -- Now uses your custom slider range instead of a static number
+    local shortestDistance = autoAttackRange 
 
     for _, obj in pairs(workspace:GetDescendants()) do
         if isEnemy(obj) then
             local distance = (playerRoot.Position - obj.HumanoidRootPart.Position).Magnitude
-            if distance < shortestDistance then
+            if distance <= shortestDistance then
                 shortestDistance = distance
                 closestEnemy = obj
             end
@@ -197,10 +200,10 @@ local function getClosestEnemy()
     return closestEnemy
 end
 
--- Throttled Shared Targeting Thread (Runs if any combat or lock feature needs a target)
+-- Throttled Shared Targeting Thread
 task.spawn(function()
     while true do
-        if targetLockEnabled or autoAttackEnabled or autoSkillsEnabled then
+        if autoAttackEnabled or autoSkillsEnabled then
             targetEnemy = getClosestEnemy()
         else
             targetEnemy = nil
@@ -212,9 +215,9 @@ end)
 
 -- // SYSTEM MODULES // --
 
--- 1. POSITIONING & ALIGNMENT MODULE (Heartbeat-Driven)
+-- 1. COMBINED MOVEMENT & ALIGNMENT MODULE (Heartbeat-Driven)
 RunService.Heartbeat:Connect(function()
-    if not targetLockEnabled or isSafeTeleported then return end
+    if not autoAttackEnabled or isSafeTeleported then return end
 
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -242,7 +245,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- 2. AUTO ATTACK MODULE
+-- 2. COMBINED AUTO ATTACK MODULE
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
