@@ -12,10 +12,12 @@ local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
+local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
 -- // INDEPENDENT CONFIG VARIABLES // --
+local CONFIG_NAME = "ModularCombatConfig"
 local autoAttackEnabled = false
-local autoAttackRange = 300     -- New: Adjustable detection/lock-on range
+local autoAttackRange = 300     
 local autoEquipEnabled = true 
 local M1_SPEED = 0.1            
 
@@ -35,20 +37,22 @@ local safeHpPercent = 25
 
 local espEnabled = false
 local autoDungeonEnabled = true  
+local autoRetryEnabled = false   
 local autoDungeonRange = 50
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v9",
+   Name = "Modular Combat Engine v11",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Streamlined Edition",
-   ConfigurationSaving = { Enabled = true, FileName = "ModularCombatConfig" },
+   LoadingSubtitle = "Configuration Profile Active",
+   ConfigurationSaving = { Enabled = true, FileName = CONFIG_NAME },
 })
 
--- Merged Tabs
+-- Tabs
 local CombatTab = Window:CreateTab("Combat & Movement", nil)
 local UtilityTab = Window:CreateTab("Utilities & HP", nil)
 local VisualsTab = Window:CreateTab("Visuals & Dungeons", nil)
+local ConfigTab = Window:CreateTab("Configuration", nil) -- Added Configuration Tab
 
 -- [COMBAT & MOVEMENT TAB]
 CombatTab:CreateToggle({
@@ -65,8 +69,8 @@ CombatTab:CreateToggle({
 
 CombatTab:CreateSlider({
    Name = "Auto Attack Detection Range",
-   Range = {10, 1000},
-   Increment = 10,
+   Range = {10, 5000}, 
+   Increment = 50,
    CurrentValue = 300,
    Callback = function(Value) autoAttackRange = Value end,
 })
@@ -151,9 +155,15 @@ VisualsTab:CreateToggle({
 })
 
 VisualsTab:CreateToggle({
-   Name = "Auto-Dungeon Progression",
+   Name = "Auto Start Dungeon", 
    CurrentValue = true,
    Callback = function(Value) autoDungeonEnabled = Value end,
+})
+
+VisualsTab:CreateToggle({
+   Name = "Auto Retry Dungeon", 
+   CurrentValue = false,
+   Callback = function(Value) autoRetryEnabled = Value end,
 })
 
 VisualsTab:CreateSlider({
@@ -162,6 +172,45 @@ VisualsTab:CreateSlider({
    Increment = 10,
    CurrentValue = 50,
    Callback = function(Value) autoDungeonRange = Value end,
+})
+
+
+-- [CONFIGURATION TAB]
+ConfigTab:CreateButton({
+   Name = "Save Configuration",
+   Callback = function()
+       Rayfield:SaveConfiguration()
+       Rayfield:Notify({
+           Title = "Profile Saved",
+           Content = "Your current custom profile config has been written to JSON.",
+           Duration = 3,
+           Image = 4483362458,
+       })
+   end,
+})
+
+ConfigTab:CreateButton({
+   Name = "Reset Configuration",
+   Callback = function()
+       if delfile then
+           pcall(function()
+               delfile("Rayfield/Configs/" .. CONFIG_NAME .. ".json")
+           end)
+           Rayfield:Notify({
+               Title = "Config Purged",
+               Content = "JSON cache cleared! Re-execute script or rejoin to load default values.",
+               Duration = 5,
+               Image = 4483362458,
+           })
+       else
+           Rayfield:Notify({
+               Title = "Execution Error",
+               Content = "Your active exploit setup does not support 'delfile' file management.",
+               Duration = 4,
+               Image = 4483362458,
+           })
+       end
+   end,
 })
 
 
@@ -184,8 +233,6 @@ local function getClosestEnemy()
     if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
     local playerRoot = character.HumanoidRootPart
     local closestEnemy = nil
-    
-    -- Now uses your custom slider range instead of a static number
     local shortestDistance = autoAttackRange 
 
     for _, obj in pairs(workspace:GetDescendants()) do
@@ -200,7 +247,6 @@ local function getClosestEnemy()
     return closestEnemy
 end
 
--- Throttled Shared Targeting Thread
 task.spawn(function()
     while true do
         if autoAttackEnabled or autoSkillsEnabled then
@@ -215,7 +261,10 @@ end)
 
 -- // SYSTEM MODULES // --
 
--- 1. COMBINED MOVEMENT & ALIGNMENT MODULE (Heartbeat-Driven)
+-- 1. COMBINED MOVEMENT & ALIGNMENT MODULE
+local isSafeTeleported = false -- Upvalued global declaration visibility helper
+local returnPosition = nil
+
 RunService.Heartbeat:Connect(function()
     if not autoAttackEnabled or isSafeTeleported then return end
 
@@ -317,9 +366,6 @@ task.spawn(function()
 end)
 
 -- 6. LOW HP SAFE SPOT MODULE
-local isSafeTeleported = false
-local returnPosition = nil
-
 task.spawn(function()
     while true do
         task.wait(0.2)
@@ -361,14 +407,15 @@ task.spawn(function()
     end
 end)
 
--- 8. AUTO-DUNGEON PROGRESSION MODULE
+-- 8. AUTO-DUNGEON PROGRESSION & RETRY MODULE
 task.spawn(function()
     while true do
         task.wait(1.5)
+        
+        -- Handle Auto Start
         if autoDungeonEnabled then
             local mainGui = player.PlayerGui:FindFirstChild("Main")
             local startBtn = mainGui and mainGui:FindFirstChild("StartBtn")
-            
             local standardProximityPass = false
             local character = player.Character
             local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -393,6 +440,27 @@ task.spawn(function()
             local gateGui = player.PlayerGui:FindFirstChild("Gate")
             if gateGui and (gateGui.Enabled or (gateGui:FindFirstChild("Main") and gateGui.Main.Visible)) then
                 task.spawn(pcall, function() enterGateRemote:InvokeServer() end)
+            end
+        end
+        
+        -- Handle Auto Retry (Smart UI Check)
+        if autoRetryEnabled then
+            local attachedRetryBtn = nil
+            
+            -- Recursively looks for a visible retry button within active screen menus
+            for _, gui in ipairs(player.PlayerGui:GetChildren()) do
+                if gui:IsA("ScreenGui") and gui.Enabled then
+                    local targetBtn = gui:FindFirstChild("RetryBtn", true) or gui:FindFirstChild("Retry", true)
+                    if targetBtn and (targetBtn:IsA("GuiButton") and targetBtn.Visible) then
+                        attachedRetryBtn = targetBtn
+                        break
+                    end
+                end
+            end
+            
+            if attachedRetryBtn then
+                task.spawn(pcall, function() retryDungeonRemote:InvokeServer("retry") end)
+                task.wait(3.5) 
             end
         end
     end
