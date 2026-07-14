@@ -24,13 +24,21 @@ local exactPartAlignment = false
 local attackDistance = 3
 local HOVER_HEIGHT = 4         
 
+-- // SKILLS SYSTEM CONFIG (v16) // --
 local autoSkillsEnabled = false
+local castF = false
+local castR = false
+local castC = false
+local castG = false
+local castV = false
 local SKILL_INTERVAL = 1.5      
 
+-- // SAFE SPOT SYSTEM CONFIG (v16) // --
 local autoPotionEnabled = true   
 local safeSpotEnabled = false
 local safeHpPercent = 25
-local safeSpotActive = false -- Dynamic state driver for anti-cheat bypass
+local safeSpotActive = false 
+local SAFE_HOVER_HEIGHT = 100 -- Constant altitude centered above the target for safe recovery
 
 local espEnabled = false
 local autoDungeonEnabled = true  
@@ -45,9 +53,9 @@ local circleAngle = 0
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v15",
+   Name = "Modular Combat Engine v16",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Anti-Cheat Safe Profile Active",
+   LoadingSubtitle = "Stealth State Matrix Loaded",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -111,10 +119,47 @@ CombatTab:CreateSlider({
 })
 
 CombatTab:CreateToggle({
-   Name = "Auto Cast Skills (F, R, C)",
+   Name = "Auto Cast Skills (Master Toggle)",
    CurrentValue = false,
    Flag = "MCE_AutoSkills",
    Callback = function(Value) autoSkillsEnabled = Value end,
+})
+
+CombatTab:CreateSection("Individual Skill Binds")
+
+CombatTab:CreateToggle({
+   Name = "Cast [F] Skill",
+   CurrentValue = false,
+   Flag = "MCE_CastF",
+   Callback = function(Value) castF = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Cast [R] Skill",
+   CurrentValue = false,
+   Flag = "MCE_CastR",
+   Callback = function(Value) castR = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Cast [C] Skill",
+   CurrentValue = false,
+   Flag = "MCE_CastC",
+   Callback = function(Value) castC = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Cast [G] Skill",
+   CurrentValue = false,
+   Flag = "MCE_CastG",
+   Callback = function(Value) castG = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Cast [V] Skill",
+   CurrentValue = false,
+   Flag = "MCE_CastV",
+   Callback = function(Value) castV = Value end,
 })
 
 
@@ -291,7 +336,7 @@ end)
 
 -- // SYSTEM MODULES // --
 
--- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE (With Dynamic Safe-Altitude Integration)
+-- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE (Dynamic Overheads)
 RunService.Heartbeat:Connect(function(deltaTime)
     if not autoAttackEnabled then return end
 
@@ -304,28 +349,27 @@ RunService.Heartbeat:Connect(function(deltaTime)
         local enemyRoot = targetEnemy.HumanoidRootPart
         local targetPosition
         
-        -- Safe Spot Modification: Swaps standard flight planes for an un-kickable safe altitude matrix
-        local currentAltitude = HOVER_HEIGHT
+        -- Dynamic Safe Spot Vector Adjustments
         if safeSpotActive then
-            currentAltitude = 120 -- Float safely above striking thresholds to recover HP without teleporting
+            -- Bypasses general orbit math to float strictly directly over enemy coordinates safely
+            targetPosition = enemyRoot.Position + Vector3.new(0.01, SAFE_HOVER_HEIGHT, 0)
+        else
+            -- Normal Combat Flight Operations
+            if positioningMode == "Above" then
+                targetPosition = enemyRoot.Position + Vector3.new(0.01, HOVER_HEIGHT, 0)
+            elseif positioningMode == "Circle" then
+                circleAngle = circleAngle + (deltaTime * 2.5) 
+                local radius = attackDistance
+                local offsetX = math.cos(circleAngle) * radius
+                local offsetZ = math.sin(circleAngle) * radius
+                targetPosition = enemyRoot.Position + Vector3.new(offsetX, HOVER_HEIGHT, offsetZ)
+            end
         end
         
-        -- Vector Positioning Matrix
-        if positioningMode == "Above" then
-            targetPosition = enemyRoot.Position + Vector3.new(0.01, currentAltitude, 0)
-        elseif positioningMode == "Circle" then
-            circleAngle = circleAngle + (deltaTime * 2.5) 
-            local radius = attackDistance
-            local offsetX = math.cos(circleAngle) * radius
-            local offsetZ = math.sin(circleAngle) * radius
-            targetPosition = enemyRoot.Position + Vector3.new(offsetX, currentAltitude, offsetZ)
-        end
-        
-        -- Translation Router (Handles smooth interpolation steps to defeat server anti-cheats)
+        -- Translation Router (Forces smooth linear glide when Safe Spotting to prevent anti-cheat triggers)
         if movementMethod == "Teleport" and not safeSpotActive then
             root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
         else
-            -- Forces a smooth linear vector step when safe spot is recovering or tween is selected
             local currentPos = root.Position
             local travelVector = (targetPosition - currentPos)
             local dist = travelVector.Magnitude
@@ -346,7 +390,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
     end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE
+-- 2. COMBINED AUTO ATTACK MODULE (Stops during Safe Spot Recovery)
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
@@ -362,32 +406,36 @@ task.spawn(function()
     end
 end)
 
--- 3. PROXIMITY-BASED AUTO SKILLS MODULE
-local skills = {Enum.KeyCode.F, Enum.KeyCode.R, Enum.KeyCode.C}
+-- 3. AUTO SKILLS SYSTEM (Stops during Safe Spot Recovery)
+local skillBinds = {
+    {Key = Enum.KeyCode.F, GetEnabled = function() return castF end},
+    {Key = Enum.KeyCode.R, GetEnabled = function() return castR end},
+    {Key = Enum.KeyCode.C, GetEnabled = function() return castC end},
+    {Key = Enum.KeyCode.G, GetEnabled = function() return castG end},
+    {Key = Enum.KeyCode.V, GetEnabled = function() return castV end},
+}
+
 task.spawn(function()
     while true do
-        for _, key in ipairs(skills) do
-            if autoSkillsEnabled and targetEnemy and not safeSpotActive then
-                local character = player.Character
-                local root = character and character:FindFirstChild("HumanoidRootPart")
-                local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart")
-                
-                -- Proximity Verification Check: Only casts keys if character is actively in strike proximity
-                if root and enemyRoot and character:FindFirstChildOfClass("Tool") then
-                    local currentDistance = (root.Position - enemyRoot.Position).Magnitude
-                    if currentDistance <= (attackDistance + 8) then
-                        VirtualInputManager:SendKeyEvent(true, key, false, game)
-                        task.wait(0.05)
-                        VirtualInputManager:SendKeyEvent(false, key, false, game)
-                        task.wait(SKILL_INTERVAL)
-                    else
-                        task.wait(0.2)
+        task.wait(0.1)
+        if autoSkillsEnabled and targetEnemy and not safeSpotActive then
+            for _, skillData in ipairs(skillBinds) do
+                -- Checks mid-iteration to handle instant safety state updates or setting changes
+                if autoSkillsEnabled and targetEnemy and not safeSpotActive and skillData.GetEnabled() then
+                    local character = player.Character
+                    local root = character and character:FindFirstChild("HumanoidRootPart")
+                    local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart")
+                    
+                    if root and enemyRoot and character:FindFirstChildOfClass("Tool") then
+                        local currentDistance = (root.Position - enemyRoot.Position).Magnitude
+                        if currentDistance <= (attackDistance + 8) then
+                            VirtualInputManager:SendKeyEvent(true, skillData.Key, false, game)
+                            task.wait(0.05)
+                            VirtualInputManager:SendKeyEvent(false, skillData.Key, false, game)
+                            task.wait(SKILL_INTERVAL)
+                        end
                     end
-                else
-                    task.wait(0.2)
                 end
-            else
-                task.wait(0.5)
             end
         end
     end
@@ -408,7 +456,7 @@ task.spawn(function()
     end
 end)
 
--- 5. ANTI-KICK AUTO SAFE SPOT MODULE
+-- 5. LOW HP AUTO SAFE SPOT CONTROLLER
 task.spawn(function()
     while true do
         task.wait(0.1)
@@ -420,9 +468,9 @@ task.spawn(function()
                 local hpPercent = (humanoid.Health / humanoid.MaxHealth) * 100
                 
                 if hpPercent <= safeHpPercent and not safeSpotActive then
-                    safeSpotActive = true -- Signals translation framework to safely step up altitude
+                    safeSpotActive = true -- Safely initiates upward glide and halts all combat loops
                 elseif hpPercent >= 90 and safeSpotActive then
-                    safeSpotActive = false -- Drops back to custom default hover once health bar is replenished
+                    safeSpotActive = false -- Returns player back to combat distance and unpauses actions
                 end
             end
         else
