@@ -56,7 +56,7 @@ local autoOpenChests = false
 local espEnabled = false
 local autoDungeonEnabled = true  
 local autoRetryEnabled = false   
-local autoRetryDelay = 1.5       -- v20 Upgrade: Customizable Retry Delay
+local autoRetryDelay = 1.5       
 local autoDungeonRange = 50
 
 -- // MOVEMENT CONFIGS // --
@@ -92,9 +92,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v20",
+   Name = "Modular Combat Engine v21",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Anti-Dummy Filters & Custom Delays Loaded",
+   LoadingSubtitle = "Legacy Targeting Restored",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -279,13 +279,12 @@ VisualsTab:CreateToggle({
    Callback = function(Value) autoRetryEnabled = Value end,
 })
 
--- v20 Upgrade: Customizable Retry Delay Slider
 VisualsTab:CreateSlider({
-   Name = "Auto Retry Delay (Sec)",
-   Range = {0, 10},
+   Name = "Auto Retry Delay (Seconds)",
+   Range = {0.5, 10},
    Increment = 0.5,
    CurrentValue = 1.5,
-   Flag = "MCE_RetryDelay",
+   Flag = "MCE_AutoRetryDelay",
    Callback = function(Value) autoRetryDelay = Value end,
 })
 
@@ -353,38 +352,20 @@ ConfigTab:CreateButton({
                Content = "Your active exploit setup does not support 'delfile' file management.",
                Duration = 4,
                Image = 4483362458,
-           })
+            })
        end
    end,
 })
 
 
--- // CORE TARGETING ENGINE // --
+-- // CORE TARGETING ENGINE (Reverted to Original Legacy Logic) // --
 local targetEnemy = nil
 
--- v20 Upgrade: Smart target selection filtering out dead, friendly, or dummy entities
 local function isEnemy(model)
     if model:IsA("Model") and model ~= player.Character then
         local humanoid = model:FindFirstChildOfClass("Humanoid")
         local root = model:FindFirstChild("HumanoidRootPart")
-        
-        if humanoid and root then
-            -- Verify enemy strictly has HP (Prevents attacking dead units/decorations)
-            local health = humanoid.Health
-            local maxHealth = humanoid.MaxHealth
-            if health <= 0 or maxHealth <= 0 then
-                return false
-            end
-            
-            -- String Blacklist Filter: Bypasses static map props, shopkeepers, and training dummy targets
-            local nameLower = model.Name:lower()
-            local blacklist = {"dummy", "npc", "citizen", "merchant", "shop", "quest", "bank", "innocent", "friendly", "guide", "helper", "trainer"}
-            for _, keyword in ipairs(blacklist) do
-                if nameLower:find(keyword) then
-                    return false
-                end
-            end
-            
+        if humanoid and root and humanoid.Health > 0 then
             return true
         end
     end
@@ -453,7 +434,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
             end
         end
         
-        -- Translation Router (Forces smooth linear glide when Safe Spotting to prevent anti-cheat triggers)
+        -- Translation Router
         if movementMethod == "Teleport" and not safeSpotActive then
             root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
         else
@@ -477,7 +458,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
     end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE (Stops during Safe Spot Recovery)
+-- 2. COMBINED AUTO ATTACK MODULE
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
@@ -493,7 +474,7 @@ task.spawn(function()
     end
 end)
 
--- 3. AUTO SKILLS SYSTEM (Stops during Safe Spot Recovery)
+-- 3. AUTO SKILLS SYSTEM
 local skillBinds = {
     {Key = Enum.KeyCode.F, GetEnabled = function() return castF end},
     {Key = Enum.KeyCode.R, GetEnabled = function() return castR end},
@@ -587,7 +568,7 @@ task.spawn(function()
     end
 end)
 
--- 7. AUTO-DUNGEON PROGRESSION MODULE (Gate & Lobby Automation)
+-- 7. AUTO-DUNGEON PROGRESSION MODULE
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -622,14 +603,14 @@ task.spawn(function()
     end
 end)
 
--- 8. EVENT-BASED AUTO RETRY MODULE (v20 Upgrade: Customizable Wait Time Slider)
+-- 8. INSTANT EVENT-BASED AUTO RETRY MODULE
 task.spawn(function()
     local connection
     local function connectListener()
         if connection then connection:Disconnect() end
         connection = fullDungeonRemote.OnClientEvent:Connect(function(action, ...)
             if autoRetryEnabled then
-                task.wait(autoRetryDelay) -- Uses the exact slider delay setting
+                task.wait(autoRetryDelay) 
                 task.spawn(pcall, function()
                     retryDungeonRemote:InvokeServer("retry")
                 end)
@@ -681,7 +662,6 @@ task.spawn(function()
                 local args = {...}
                 local chestUUID = nil
                 
-                -- Dynamic payload mapping
                 for _, arg in ipairs(args) do
                     if type(arg) == "string" and arg:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
                         chestUUID = arg
@@ -692,7 +672,6 @@ task.spawn(function()
                     end
                 end
                 
-                -- Positional backup checks
                 if not chestUUID then
                     if typeof(args[2]) == "CFrame" and type(args[3]) == "string" then
                         chestUUID = args[3]
