@@ -14,10 +14,14 @@ local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):Wait
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
--- // SYSTEM UPGRADE REMOTES (v18) // --
+-- // SYSTEM UPGRADE REMOTES (v18 & v19) // --
 local fullDungeonRemote = ReplicatedStorage:WaitForChild("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("FullDungeonRemote")
 local dropCreatedRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RE"):WaitForChild("DropCreatedSignal")
 local collectDropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
+
+-- v19 Chest Remotes
+local spawnChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("BossDropsService"):WaitForChild("RE"):WaitForChild("SpawnChest")
+local openChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("BossDropsService"):WaitForChild("RF"):WaitForChild("OpenChest")
 
 -- // INDEPENDENT CONFIG VARIABLES // --
 local autoAttackEnabled = false
@@ -45,8 +49,9 @@ local safeHpPercent = 25
 local safeSpotActive = false 
 local SAFE_HOVER_HEIGHT = 100 
 
--- // AUTO COLLECT CONFIG (v18) // --
+-- // AUTO COLLECT & OPEN CONFIG (v18 & v19) // --
 local autoCollectDrops = false
+local autoOpenChests = false
 
 local espEnabled = false
 local autoDungeonEnabled = true  
@@ -59,7 +64,7 @@ local tweenSpeed = 150
 local positioningMode = "Above"   
 local circleAngle = 0
 
--- // NOCLIP STATE ENGINE (v18 Upgrade) // --
+-- // NOCLIP STATE ENGINE // --
 local noclipConnection
 local function updateNoclipState()
     local shouldNoclip = (autoAttackEnabled or safeSpotActive) and (movementMethod == "Tween")
@@ -86,9 +91,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v18",
+   Name = "Modular Combat Engine v19",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "No-Clip & Loot Modules Engaged",
+   LoadingSubtitle = "Network-Based Loot Loops Engaged",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -205,6 +210,13 @@ UtilityTab:CreateToggle({
    CurrentValue = false,
    Flag = "MCE_AutoCollectDrops",
    Callback = function(Value) autoCollectDrops = Value end,
+})
+
+UtilityTab:CreateToggle({
+   Name = "Auto Open Chests",
+   CurrentValue = false,
+   Flag = "MCE_AutoOpenChests",
+   Callback = function(Value) autoOpenChests = Value end,
 })
 
 UtilityTab:CreateToggle({
@@ -604,7 +616,7 @@ task.spawn(function()
     end)
 end)
 
--- 9. EVENT-DRIVEN AUTO COLLECT DROPS MODULE (v18 Upgrade)
+-- 9. EVENT-DRIVEN AUTO COLLECT DROPS MODULE
 task.spawn(function()
     local dropConnection
     local function connectDropListener()
@@ -615,7 +627,6 @@ task.spawn(function()
                 if type(dropData) == "table" and dropData.GlobalDrop ~= nil then
                     isGlobal = dropData.GlobalDrop
                 end
-                -- Instantly invokes collection routine
                 task.spawn(pcall, function()
                     collectDropRemote:InvokeServer(dropId, isGlobal)
                 end)
@@ -631,7 +642,55 @@ task.spawn(function()
     end)
 end)
 
--- 10. ESP MODULE
+-- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE (v19 Upgrade)
+task.spawn(function()
+    local chestConnection
+    local function connectChestListener()
+        if chestConnection then chestConnection:Disconnect() end
+        chestConnection = spawnChestRemote.OnClientEvent:Connect(function(...)
+            if autoOpenChests then
+                local args = {...}
+                local chestUUID = nil
+                
+                -- Dynamic payload mapping for extreme stability
+                for _, arg in ipairs(args) do
+                    if type(arg) == "string" and arg:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
+                        chestUUID = arg
+                        break
+                    elseif type(arg) == "table" and arg.ChestUUID then
+                        chestUUID = arg.ChestUUID
+                        break
+                    end
+                end
+                
+                -- Positional configuration backup check
+                if not chestUUID then
+                    if typeof(args[2]) == "CFrame" and type(args[3]) == "string" then
+                        chestUUID = args[3]
+                    elseif typeof(args[1]) == "CFrame" and type(args[2]) == "string" then
+                        chestUUID = args[2]
+                    end
+                end
+                
+                if chestUUID then
+                    -- Instant, latency-free remote execution
+                    task.spawn(pcall, function()
+                        openChestRemote:InvokeServer(chestUUID)
+                    end)
+                end
+            end
+        end)
+    end
+    
+    connectChestListener()
+    
+    player.CharacterAdded:Connect(function()
+        task.wait(1)
+        connectChestListener()
+    end)
+end)
+
+-- 11. ESP MODULE
 task.spawn(function()
     while true do
         task.wait(0.5)
