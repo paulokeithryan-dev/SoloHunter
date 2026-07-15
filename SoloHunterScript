@@ -14,12 +14,12 @@ local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):Wait
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
--- // SYSTEM UPGRADE REMOTES // --
+-- // SYSTEM UPGRADE REMOTES (v18 & v19) // --
 local fullDungeonRemote = ReplicatedStorage:WaitForChild("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("FullDungeonRemote")
 local dropCreatedRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RE"):WaitForChild("DropCreatedSignal")
 local collectDropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 
--- Chest Remotes
+-- v19 Chest Remotes
 local spawnChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("BossDropsService"):WaitForChild("RE"):WaitForChild("SpawnChest")
 local openChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("BossDropsService"):WaitForChild("RF"):WaitForChild("OpenChest")
 
@@ -49,14 +49,13 @@ local safeHpPercent = 25
 local safeSpotActive = false 
 local SAFE_HOVER_HEIGHT = 100 
 
--- // AUTO COLLECT & OPEN CONFIG // --
+-- // AUTO COLLECT & OPEN CONFIG (v18 & v19) // --
 local autoCollectDrops = false
 local autoOpenChests = false
 
 local espEnabled = false
 local autoDungeonEnabled = true  
 local autoRetryEnabled = false   
-local autoRetryDelay = 1.5       
 local autoDungeonRange = 50
 
 -- // MOVEMENT CONFIGS // --
@@ -92,9 +91,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v21",
+   Name = "Modular Combat Engine v19",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Legacy Targeting Restored",
+   LoadingSubtitle = "Network-Based Loot Loops Engaged",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -280,15 +279,6 @@ VisualsTab:CreateToggle({
 })
 
 VisualsTab:CreateSlider({
-   Name = "Auto Retry Delay (Seconds)",
-   Range = {0.5, 10},
-   Increment = 0.5,
-   CurrentValue = 1.5,
-   Flag = "MCE_AutoRetryDelay",
-   Callback = function(Value) autoRetryDelay = Value end,
-})
-
-VisualsTab:CreateSlider({
    Name = "Auto Dungeon Trigger Range",
    Range = {10, 200},
    Increment = 10,
@@ -352,13 +342,13 @@ ConfigTab:CreateButton({
                Content = "Your active exploit setup does not support 'delfile' file management.",
                Duration = 4,
                Image = 4483362458,
-            })
+           })
        end
    end,
 })
 
 
--- // CORE TARGETING ENGINE (Reverted to Original Legacy Logic) // --
+-- // CORE TARGETING ENGINE // --
 local targetEnemy = nil
 
 local function isEnemy(model)
@@ -434,7 +424,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
             end
         end
         
-        -- Translation Router
+        -- Translation Router (Forces smooth linear glide when Safe Spotting to prevent anti-cheat triggers)
         if movementMethod == "Teleport" and not safeSpotActive then
             root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
         else
@@ -458,7 +448,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
     end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE
+-- 2. COMBINED AUTO ATTACK MODULE (Stops during Safe Spot Recovery)
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
@@ -474,7 +464,7 @@ task.spawn(function()
     end
 end)
 
--- 3. AUTO SKILLS SYSTEM
+-- 3. AUTO SKILLS SYSTEM (Stops during Safe Spot Recovery)
 local skillBinds = {
     {Key = Enum.KeyCode.F, GetEnabled = function() return castF end},
     {Key = Enum.KeyCode.R, GetEnabled = function() return castR end},
@@ -568,7 +558,7 @@ task.spawn(function()
     end
 end)
 
--- 7. AUTO-DUNGEON PROGRESSION MODULE
+-- 7. AUTO-DUNGEON PROGRESSION MODULE (Gate & Lobby Automation)
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -610,7 +600,7 @@ task.spawn(function()
         if connection then connection:Disconnect() end
         connection = fullDungeonRemote.OnClientEvent:Connect(function(action, ...)
             if autoRetryEnabled then
-                task.wait(autoRetryDelay) 
+                task.wait(1.5) 
                 task.spawn(pcall, function()
                     retryDungeonRemote:InvokeServer("retry")
                 end)
@@ -652,7 +642,7 @@ task.spawn(function()
     end)
 end)
 
--- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE
+-- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE (v19 Upgrade)
 task.spawn(function()
     local chestConnection
     local function connectChestListener()
@@ -662,6 +652,7 @@ task.spawn(function()
                 local args = {...}
                 local chestUUID = nil
                 
+                -- Dynamic payload mapping for extreme stability
                 for _, arg in ipairs(args) do
                     if type(arg) == "string" and arg:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
                         chestUUID = arg
@@ -672,6 +663,7 @@ task.spawn(function()
                     end
                 end
                 
+                -- Positional configuration backup check
                 if not chestUUID then
                     if typeof(args[2]) == "CFrame" and type(args[3]) == "string" then
                         chestUUID = args[3]
@@ -681,6 +673,7 @@ task.spawn(function()
                 end
                 
                 if chestUUID then
+                    -- Instant, latency-free remote execution
                     task.spawn(pcall, function()
                         openChestRemote:InvokeServer(chestUUID)
                     end)
