@@ -7,6 +7,20 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 
+-- // CACHED CHARACTER REFERENCES // --
+local cachedCharacter, cachedRoot, cachedHumanoid
+local function updateCharacterCache(char)
+    if char then
+        cachedCharacter = char
+        cachedRoot = char:WaitForChild("HumanoidRootPart", 5)
+        cachedHumanoid = char:WaitForChild("Humanoid", 5)
+    else
+        cachedCharacter, cachedRoot, cachedHumanoid = nil, nil, nil
+    end
+end
+player.CharacterAdded:Connect(updateCharacterCache)
+if player.Character then updateCharacterCache(player.Character) end
+
 -- // EXPLOIT REMOTES // --
 local RemoteServices = ReplicatedStorage:WaitForChild("RemoteServices")
 local healRemote = RemoteServices:WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
@@ -15,70 +29,59 @@ local startDungeonRemote = RemoteServices:WaitForChild("DungeonService"):WaitFor
 local enterGateRemote = RemoteServices:WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 local retryDungeonRemote = RemoteServices:WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
--- // SYSTEM UPGRADE REMOTES // --
 local fullDungeonRemote = ReplicatedStorage:WaitForChild("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("FullDungeonRemote")
 local dropCreatedRemote = RemoteServices:WaitForChild("DropsService"):WaitForChild("RE"):WaitForChild("DropCreatedSignal")
 local collectDropRemote = RemoteServices:WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
-
 local spawnChestRemote = RemoteServices:WaitForChild("BossDropsService"):WaitForChild("RE"):WaitForChild("SpawnChest")
 local openChestRemote = RemoteServices:WaitForChild("BossDropsService"):WaitForChild("RF"):WaitForChild("OpenChest")
 
--- // INDEPENDENT CONFIG VARIABLES // --
+-- // CONFIG VARIABLES // --
 local autoAttackEnabled = false
 local autoAttackRange = 300     
 local autoEquipEnabled = true 
 local M1_SPEED = 0.1            
-
 local exactPartAlignment = false
 local attackDistance = 3
 local HOVER_HEIGHT = 4         
 
--- // SKILLS SYSTEM CONFIG // --
 local autoSkillsEnabled = false
 local castF, castR, castC, castG, castV = false, false, false, false, false
 local SKILL_INTERVAL = 1.5      
 
--- // SAFE SPOT SYSTEM CONFIG // --
 local autoPotionEnabled = true   
 local safeSpotEnabled = false
 local safeHpPercent = 25
 local SAFE_HOVER_HEIGHT = 100 
 
--- // AUTO COLLECT & OPEN CONFIG // --
 local autoCollectDrops = false
 local autoOpenChests = false
-
 local espEnabled = false
 local autoDungeonEnabled = true  
 local autoRetryEnabled = false   
 local autoRetryDelay = 1.5       
 local autoDungeonRange = 50
 
--- // MOVEMENT CONFIGS // --
 local movementMethod = "Teleport" 
 local tweenSpeed = 150
 local positioningMode = "Above"   
 local circleAngle = 0
 
--- // INTERNAL STATE MACHINE // --
-local EngineState = "Idle" -- States: "Idle", "Moving", "Combat", "SafeSpot"
+-- // STATE MACHINE & CACHE // --
+local EngineState = "Idle" -- States: "Idle", "Combat", "SafeSpot", "Casting"
 local targetEnemy = nil
 local enemyCache = {}
 local activeESPHighlights = {}
+local BLACKLIST_KEYWORDS = {"dummy", "npc", "citizen", "merchant", "shop", "quest", "bank", "innocent", "friendly", "guide", "helper", "trainer"}
 
 -- // NOCLIP STATE ENGINE // --
 local noclipConnection
 local function updateNoclipState()
     local shouldNoclip = (autoAttackEnabled or EngineState == "SafeSpot") and (movementMethod == "Tween")
-    
     if shouldNoclip and not noclipConnection then
         noclipConnection = RunService.Stepped:Connect(function()
-            local character = player.Character
-            if character then
-                for _, part in ipairs(character:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
+            if cachedCharacter then
+                for _, part in ipairs(cachedCharacter:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = false end
                 end
             end
         end)
@@ -89,16 +92,11 @@ local function updateNoclipState()
 end
 
 -- // RAYFIELD UI SETUP // --
--- (UI Preserved Exactly as Requested)
 local Window = Rayfield:CreateWindow({
    Name = "Modular Combat Engine v20",
    LoadingTitle = "Applying Adjustments...",
    LoadingSubtitle = "Optimized State Machine Loaded",
-   ConfigurationSaving = { 
-      Enabled = true, 
-      FolderName = "ModularCombatEngine", 
-      FileName = "Config" 
-   },
+   ConfigurationSaving = { Enabled = true, FolderName = "ModularCombatEngine", FileName = "Config" },
 })
 
 local CombatTab = Window:CreateTab("Combat & Movement", nil)
@@ -124,7 +122,7 @@ CombatTab:CreateToggle({Name = "Cast [V] Skill", CurrentValue = false, Flag = "M
 UtilityTab:CreateToggle({Name = "Auto Collect Drops", CurrentValue = false, Flag = "MCE_AutoCollectDrops", Callback = function(Value) autoCollectDrops = Value end})
 UtilityTab:CreateToggle({Name = "Auto Open Chests", CurrentValue = false, Flag = "MCE_AutoOpenChests", Callback = function(Value) autoOpenChests = Value end})
 UtilityTab:CreateToggle({Name = "Auto-Potion (Below 50% HP)", CurrentValue = true, Flag = "MCE_AutoPotion", Callback = function(Value) autoPotionEnabled = Value end})
-UtilityTab:CreateToggle({Name = "Auto Safe Spot (Bypass Disconnect)", CurrentValue = false, Flag = "MCE_SafeSpot", Callback = function(Value) safeSpotEnabled = Value if not Value then EngineState = "Idle" updateNoclipState() end end})
+UtilityTab:CreateToggle({Name = "Auto Safe Spot (Bypass Disconnect)", CurrentValue = false, Flag = "MCE_SafeSpot", Callback = function(Value) safeSpotEnabled = Value if not Value and EngineState == "SafeSpot" then EngineState = "Idle" updateNoclipState() end end})
 UtilityTab:CreateSlider({Name = "Safe Spot Trigger HP %", Range = {10, 50}, Increment = 5, CurrentValue = 25, Flag = "MCE_SafeSpotHP", Callback = function(Value) safeHpPercent = Value end})
 
 VisualsTab:CreateToggle({Name = "Enemy ESP", CurrentValue = false, Flag = "MCE_EnemyESP", Callback = function(Value) espEnabled = Value if not Value then for _, v in pairs(activeESPHighlights) do v:Destroy() end activeESPHighlights = {} end end})
@@ -137,20 +135,15 @@ ConfigTab:CreateSection("Movement Settings")
 ConfigTab:CreateDropdown({Name = "Movement Method", Options = {"Teleport", "Tween"}, CurrentOption = {"Teleport"}, Flag = "MCE_MovementMethod", Callback = function(Option) movementMethod = type(Option) == "table" and Option[1] or Option updateNoclipState() end})
 ConfigTab:CreateSlider({Name = "Tween Speed", Range = {25, 500}, Increment = 25, CurrentValue = 150, Flag = "MCE_TweenSpeed", Callback = function(Value) tweenSpeed = Value end})
 ConfigTab:CreateDropdown({Name = "Positioning Mode", Options = {"Above", "Circle"}, CurrentOption = {"Above"}, Flag = "MCE_PositioningMode", Callback = function(Option) positioningMode = type(Option) == "table" and Option[1] or Option end})
+ConfigTab:CreateButton({Name = "Reset Configuration", Callback = function() if delfile then pcall(function() delfile("ModularCombatEngine/Config.json") end) Rayfield:Notify({Title = "Config Purged", Content = "JSON cache cleared!", Duration = 5}) end end})
 
-ConfigTab:CreateSection("Profile Cache Management")
-ConfigTab:CreateButton({Name = "Reset Configuration", Callback = function() if delfile then pcall(function() delfile("ModularCombatEngine/Config.json") end) Rayfield:Notify({Title = "Config Purged", Content = "JSON cache cleared!", Duration = 5}) else Rayfield:Notify({Title = "Error", Content = "Exploit does not support 'delfile'.", Duration = 4}) end end})
-
--- // CORE HELPERS & STATE EVALUATION // --
-
-local BLACKLIST_KEYWORDS = {"dummy", "npc", "citizen", "merchant", "shop", "quest", "bank", "innocent", "friendly", "guide", "helper", "trainer"}
+-- // CORE LOGIC & OPTIMIZATION // --
 
 local function isEnemyValid(model)
-    if not model or not model.Parent or model == player.Character then return false end
-    local humanoid = model:FindFirstChildOfClass("Humanoid")
+    if not model or not model.Parent or model == cachedCharacter then return false end
+    local hum = model:FindFirstChildOfClass("Humanoid")
     local root = model:FindFirstChild("HumanoidRootPart")
-    
-    if humanoid and root and humanoid.Health > 0 and humanoid.MaxHealth > 0 then
+    if hum and root and hum.Health > 0 and hum.MaxHealth > 0 then
         local nameLower = model.Name:lower()
         for i = 1, #BLACKLIST_KEYWORDS do
             if string.find(nameLower, BLACKLIST_KEYWORDS[i]) then return false end
@@ -160,176 +153,167 @@ local function isEnemyValid(model)
     return false
 end
 
--- Update Engine State (Runs periodically to determine what the local player should be doing)
-local function evaluateState()
-    local character = player.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    
-    if not humanoid or humanoid.Health <= 0 then
-        EngineState = "Idle"
-        return
+-- Fast Cache Validator (Issue 4)
+task.spawn(function()
+    while task.wait(0.2) do
+        for i = #enemyCache, 1, -1 do
+            if not isEnemyValid(enemyCache[i]) then
+                if targetEnemy == enemyCache[i] then targetEnemy = nil end
+                table.remove(enemyCache, i)
+            end
+        end
     end
+end)
 
-    -- Priority 1: Safe Spot
-    if safeSpotEnabled then
-        local hpPercent = (humanoid.Health / humanoid.MaxHealth) * 100
-        if hpPercent <= safeHpPercent then
+-- Deep Workspace Scan
+task.spawn(function()
+    while task.wait(2) do
+        if autoAttackEnabled or autoSkillsEnabled or espEnabled then
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if isEnemyValid(obj) and not table.find(enemyCache, obj) then
+                    table.insert(enemyCache, obj)
+                end
+            end
+        end
+    end
+end)
+
+-- State Machine Authority (Issue 5 & 3)
+task.spawn(function()
+    while task.wait(0.1) do
+        if EngineState == "Casting" then continue end -- System locked by skills
+        
+        if not cachedHumanoid or cachedHumanoid.Health <= 0 then
+            EngineState = "Idle"
+            continue
+        end
+
+        local hpPercent = (cachedHumanoid.Health / cachedHumanoid.MaxHealth) * 100
+        if safeSpotEnabled and hpPercent <= safeHpPercent then
             if EngineState ~= "SafeSpot" then
                 EngineState = "SafeSpot"
                 updateNoclipState()
             end
-            return
-        elseif hpPercent >= 90 and EngineState == "SafeSpot" then
+            continue
+        elseif EngineState == "SafeSpot" and hpPercent >= 90 then
             EngineState = "Idle"
             updateNoclipState()
+        elseif EngineState == "SafeSpot" then
+            continue
         end
-    end
 
-    -- Priority 2: Combat/Movement
-    if EngineState == "SafeSpot" then return end 
-    
-    if (autoAttackEnabled or autoSkillsEnabled) and targetEnemy then
-        EngineState = "Combat"
-    else
-        EngineState = "Idle"
-    end
-end
-
--- // TARGET MANAGEMENT (Sticky & Cached) // --
-
--- Refreshes the cache of viable targets sparsely to avoid lag
-task.spawn(function()
-    while true do
-        if autoAttackEnabled or autoSkillsEnabled or espEnabled then
-            local newCache = {}
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                if isEnemyValid(obj) then
-                    table.insert(newCache, obj)
-                end
-            end
-            enemyCache = newCache
-        end
-        task.wait(2.5) -- Scaled down drastically from 0.1s
-    end
-end)
-
--- Sticky Targeting Logic
-task.spawn(function()
-    while true do
-        evaluateState()
-        
-        if autoAttackEnabled or autoSkillsEnabled then
-            local character = player.Character
-            local playerRoot = character and character:FindFirstChild("HumanoidRootPart")
-            
-            if playerRoot then
-                -- Check if current target is still viable (Sticky Target)
-                if targetEnemy and isEnemyValid(targetEnemy) then
-                    local targetRoot = targetEnemy:FindFirstChild("HumanoidRootPart")
-                    if targetRoot and (playerRoot.Position - targetRoot.Position).Magnitude <= autoAttackRange then
-                        -- Keep current target
-                        continue
-                    end
-                end
-                
-                -- Find new closest target from cache
-                local closestEnemy = nil
-                local shortestDist = autoAttackRange 
-                
-                for i = 1, #enemyCache do
-                    local obj = enemyCache[i]
-                    if isEnemyValid(obj) then
-                        local enemyRoot = obj:FindFirstChild("HumanoidRootPart")
-                        if enemyRoot then
-                            local dist = (playerRoot.Position - enemyRoot.Position).Magnitude
-                            if dist <= shortestDist then
-                                shortestDist = dist
-                                closestEnemy = obj
-                            end
-                        end
-                    end
-                end
-                targetEnemy = closestEnemy
-            end
+        if (autoAttackEnabled or autoSkillsEnabled) and targetEnemy then
+            EngineState = "Combat"
         else
-            targetEnemy = nil
+            EngineState = "Idle"
         end
-        task.wait(0.2)
     end
 end)
 
--- // SYSTEM MODULES // --
+-- Target Selection (Issue 8)
+task.spawn(function()
+    while task.wait(0.1) do
+        if EngineState ~= "Combat" and EngineState ~= "Casting" then continue end
+        
+        if targetEnemy and isEnemyValid(targetEnemy) and cachedRoot then
+            local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart")
+            if enemyRoot and (cachedRoot.Position - enemyRoot.Position).Magnitude <= autoAttackRange then
+                continue -- Sticky targeting maintained
+            end
+        end
+        
+        local closest, shortestDist = nil, autoAttackRange 
+        for i = 1, #enemyCache do
+            local obj = enemyCache[i]
+            local eRoot = obj:FindFirstChild("HumanoidRootPart")
+            if eRoot and cachedRoot then
+                local dist = (cachedRoot.Position - eRoot.Position).Magnitude
+                if dist <= shortestDist then
+                    shortestDist = dist
+                    closest = obj
+                end
+            end
+        end
+        targetEnemy = closest
+    end
+end)
 
--- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE (Separated concerns)
+-- // HEARTBEAT ENGINE // --
 local function getDesiredPosition(enemyRoot, deltaTime)
     if EngineState == "SafeSpot" then
-        return enemyRoot.Position + Vector3.new(0.01, SAFE_HOVER_HEIGHT, 0)
+        return enemyRoot.Position + Vector3.new(0, SAFE_HOVER_HEIGHT, 0)
     end
     
     if positioningMode == "Above" then
-        return enemyRoot.Position + Vector3.new(0.01, HOVER_HEIGHT, 0)
+        return enemyRoot.Position + Vector3.new(0, HOVER_HEIGHT, 0)
     elseif positioningMode == "Circle" then
         circleAngle = circleAngle + (deltaTime * 2.5) 
-        local radius = attackDistance
-        local offsetX = math.cos(circleAngle) * radius
-        local offsetZ = math.sin(circleAngle) * radius
+        local offsetX = math.cos(circleAngle) * attackDistance
+        local offsetZ = math.sin(circleAngle) * attackDistance
         return enemyRoot.Position + Vector3.new(offsetX, HOVER_HEIGHT, offsetZ)
     end
     return enemyRoot.Position
 end
 
 RunService.Heartbeat:Connect(function(deltaTime)
-    if not autoAttackEnabled and EngineState ~= "SafeSpot" then return end
-    if not targetEnemy then return end
-    
-    local character = player.Character
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-    local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart")
-    
-    if not root or not enemyRoot then return end
-    
-    local targetPosition = getDesiredPosition(enemyRoot, deltaTime)
-    local currentPos = root.Position
-    local travelVector = targetPosition - currentPos
-    local dist = travelVector.Magnitude
+    if EngineState == "Idle" or not cachedRoot then return end
 
-    -- Tolerance check: Avoid CFrame writes if we are already there
-    if dist > 0.5 or exactPartAlignment then
-        local newCFrame
+    local currentPos = cachedRoot.Position
+    local currentLook = cachedRoot.CFrame.LookVector
+    local targetPos = currentPos
+    local enemyRoot = targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart")
+
+    if EngineState == "SafeSpot" then
+        targetPos = enemyRoot and (enemyRoot.Position + Vector3.new(0, SAFE_HOVER_HEIGHT, 0)) or (currentPos + Vector3.new(0, SAFE_HOVER_HEIGHT, 0))
+    elseif EngineState == "Casting" then
+        targetPos = currentPos -- Suspend positional updates to prevent conflicts
+    elseif EngineState == "Combat" and enemyRoot then
+        targetPos = getDesiredPosition(enemyRoot, deltaTime)
+    end
+
+    local travelDist = (targetPos - currentPos).Magnitude
+    local requiresMove = travelDist > 0.2 -- Tolerance check (Issue 1)
+
+    -- Flat aim logic (Issue 2)
+    local flatLookPos = enemyRoot and Vector3.new(enemyRoot.Position.X, currentPos.Y, enemyRoot.Position.Z) or (currentPos + currentLook)
+    local desiredLookDir = (flatLookPos - currentPos).Unit
+    if desiredLookDir.Magnitude == 0 or desiredLookDir ~= desiredLookDir then desiredLookDir = currentLook end
+    local requiresRotation = currentLook:Dot(desiredLookDir) < 0.999 -- Requires rotation if delta > ~2.5 degrees
+
+    if requiresMove or exactPartAlignment then
+        local newPos = currentPos
         if movementMethod == "Teleport" and EngineState ~= "SafeSpot" then
-            newCFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
+            newPos = targetPos
         else
-            local operationalSpeed = (EngineState == "SafeSpot") and 200 or tweenSpeed
-            local glideStep = math.min(dist, operationalSpeed * deltaTime)
-            local calculatedPosition = currentPos + (travelVector.Unit * glideStep)
-            newCFrame = CFrame.lookAt(calculatedPosition, enemyRoot.Position)
+            local speed = (EngineState == "SafeSpot") and 200 or tweenSpeed
+            local step = math.min(travelDist, speed * deltaTime)
+            newPos = currentPos + ((targetPos - currentPos).Unit * step)
         end
-        root.CFrame = newCFrame
-    elseif not exactPartAlignment then
-        -- Only aim if we are already close enough
-        root.CFrame = CFrame.lookAt(currentPos, enemyRoot.Position)
+
+        local lookTarget = requiresRotation and Vector3.new(flatLookPos.X, newPos.Y, flatLookPos.Z) or (newPos + currentLook)
+        cachedRoot.CFrame = CFrame.lookAt(newPos, lookTarget)
+    elseif requiresRotation then
+        cachedRoot.CFrame = CFrame.lookAt(currentPos, flatLookPos)
     end
     
-    root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+    -- Velocity Optimization (Issue 6)
+    if cachedRoot.AssemblyLinearVelocity.Magnitude > 0.5 then
+        cachedRoot.AssemblyLinearVelocity = Vector3.zero
+    end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE
+-- // COMBAT & SKILLS // --
 task.spawn(function()
-    while true do
-        task.wait(M1_SPEED)
-        if autoAttackEnabled and EngineState == "Combat" and targetEnemy then
-            local character = player.Character
-            if character and character:FindFirstChildOfClass("Tool") then
-                task.spawn(function() pcall(function() useWeaponRemote:InvokeServer() end) end)
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-                task.wait(0.01)
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-            end
+    while task.wait(M1_SPEED) do
+        if autoAttackEnabled and EngineState == "Combat" and targetEnemy and cachedCharacter:FindFirstChildOfClass("Tool") then
+            task.spawn(function() pcall(function() useWeaponRemote:InvokeServer() end) end)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            task.wait(0.01)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
         end
     end
 end)
 
--- 3. AUTO SKILLS SYSTEM
 local skillBinds = {
     {Key = Enum.KeyCode.F, GetEnabled = function() return castF end},
     {Key = Enum.KeyCode.R, GetEnabled = function() return castR end},
@@ -339,16 +323,12 @@ local skillBinds = {
 }
 
 task.spawn(function()
-    while true do
-        task.wait(0.1)
+    while task.wait(0.1) do
         if autoSkillsEnabled and EngineState == "Combat" and targetEnemy then
-            local character = player.Character
-            local root = character and character:FindFirstChild("HumanoidRootPart")
             local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart")
-            
-            if root and enemyRoot and character:FindFirstChildOfClass("Tool") then
-                local currentDistance = (root.Position - enemyRoot.Position).Magnitude
-                if currentDistance <= (attackDistance + 8) then
+            if cachedRoot and enemyRoot and cachedCharacter:FindFirstChildOfClass("Tool") then
+                if (cachedRoot.Position - enemyRoot.Position).Magnitude <= (attackDistance + 8) then
+                    EngineState = "Casting" -- Locks movement (Issue 3)
                     for i = 1, #skillBinds do
                         if skillBinds[i].GetEnabled() then
                             VirtualInputManager:SendKeyEvent(true, skillBinds[i].Key, false, game)
@@ -357,20 +337,18 @@ task.spawn(function()
                             task.wait(SKILL_INTERVAL)
                         end
                     end
+                    EngineState = "Combat" -- Restores movement
                 end
             end
         end
     end
 end)
 
--- 4. AUTO POTION MODULE
+-- // UTILITIES // --
 task.spawn(function()
-    while true do
-        task.wait(0.5)
-        local character = player.Character
-        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-        if autoPotionEnabled and humanoid and humanoid.Health > 0 then
-            if (humanoid.Health / humanoid.MaxHealth) <= 0.5 then
+    while task.wait(0.5) do
+        if autoPotionEnabled and cachedHumanoid and cachedHumanoid.Health > 0 then
+            if (cachedHumanoid.Health / cachedHumanoid.MaxHealth) <= 0.5 then
                 pcall(function() healRemote:InvokeServer() end)
                 task.wait(1.5) 
             end
@@ -378,119 +356,75 @@ task.spawn(function()
     end
 end)
 
--- 5. AUTO EQUIP MODULE
 task.spawn(function()
-    while true do
-        task.wait(0.5)
-        if autoEquipEnabled and EngineState ~= "SafeSpot" then
-            local character = player.Character
-            if character and character:FindFirstChildOfClass("Humanoid") and character.Humanoid.Health > 0 then
-                if not character:FindFirstChildOfClass("Tool") then
-                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
-                    task.wait(0.02)
-                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
-                end
+    while task.wait(0.5) do
+        if autoEquipEnabled and EngineState ~= "SafeSpot" and cachedHumanoid and cachedHumanoid.Health > 0 then
+            if not cachedCharacter:FindFirstChildOfClass("Tool") then
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
+                task.wait(0.02)
+                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
             end
         end
     end
 end)
 
--- 6. DUNGEON PROGRESSION MODULE
-task.spawn(function()
-    while true do
-        task.wait(1.5)
-        if autoDungeonEnabled then
-            local mainGui = player.PlayerGui:FindFirstChild("Main")
-            local startBtn = mainGui and mainGui:FindFirstChild("StartBtn")
-            
-            if startBtn and startBtn.Visible then
-                task.spawn(function() pcall(function() startDungeonRemote:InvokeServer() end) end)
+-- // EVENT MANAGERS // --
+fullDungeonRemote.OnClientEvent:Connect(function()
+    if autoRetryEnabled then
+        task.wait(autoRetryDelay)
+        task.spawn(function() pcall(function() retryDungeonRemote:InvokeServer("retry") end) end)
+    end
+end)
+
+dropCreatedRemote.OnClientEvent:Connect(function(dropId, _, _, _, dropData)
+    if autoCollectDrops then
+        local isGlobal = type(dropData) == "table" and dropData.GlobalDrop == true or false
+        task.spawn(function() pcall(function() collectDropRemote:InvokeServer(dropId, isGlobal) end) end)
+    end
+end)
+
+spawnChestRemote.OnClientEvent:Connect(function(...)
+    if autoOpenChests then
+        local args = {...}
+        local chestUUID = nil
+        for _, arg in ipairs(args) do
+            if type(arg) == "string" and arg:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
+                chestUUID = arg break
+            elseif type(arg) == "table" and arg.ChestUUID then
+                chestUUID = arg.ChestUUID break
             end
-            
-            local gateGui = player.PlayerGui:FindFirstChild("Gate")
-            if gateGui and (gateGui.Enabled or (gateGui:FindFirstChild("Main") and gateGui.Main.Visible)) then
-                task.spawn(function() pcall(function() enterGateRemote:InvokeServer() end) end)
-            end
+        end
+        if not chestUUID then
+            if typeof(args[2]) == "CFrame" and type(args[3]) == "string" then chestUUID = args[3]
+            elseif typeof(args[1]) == "CFrame" and type(args[2]) == "string" then chestUUID = args[2] end
+        end
+        if chestUUID then
+            task.spawn(function() pcall(function() openChestRemote:InvokeServer(chestUUID) end) end)
         end
     end
 end)
 
--- 7. EVENT MANAGERS (Drops, Chests, Retry)
-local function setupEventConnections()
-    -- Retry Dungeon
-    fullDungeonRemote.OnClientEvent:Connect(function()
-        if autoRetryEnabled then
-            task.wait(autoRetryDelay)
-            task.spawn(function() pcall(function() retryDungeonRemote:InvokeServer("retry") end) end)
-        end
-    end)
-    
-    -- Drops
-    dropCreatedRemote.OnClientEvent:Connect(function(dropId, dropType, dropBase, position, dropData)
-        if autoCollectDrops then
-            local isGlobal = type(dropData) == "table" and dropData.GlobalDrop == true or false
-            task.spawn(function() pcall(function() collectDropRemote:InvokeServer(dropId, isGlobal) end) end)
-        end
-    end)
-    
-    -- Chests
-    spawnChestRemote.OnClientEvent:Connect(function(...)
-        if autoOpenChests then
-            local args = {...}
-            local chestUUID = nil
-            for _, arg in ipairs(args) do
-                if type(arg) == "string" and arg:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
-                    chestUUID = arg break
-                elseif type(arg) == "table" and arg.ChestUUID then
-                    chestUUID = arg.ChestUUID break
-                end
-            end
-            
-            if not chestUUID then
-                if typeof(args[2]) == "CFrame" and type(args[3]) == "string" then chestUUID = args[3]
-                elseif typeof(args[1]) == "CFrame" and type(args[2]) == "string" then chestUUID = args[2] end
-            end
-            
-            if chestUUID then
-                task.spawn(function() pcall(function() openChestRemote:InvokeServer(chestUUID) end) end)
-            end
-        end
-    end)
-end
-
--- Bind events once to prevent memory leaks, reconnecting is unnecessary for Remotes unless they are destroyed
-setupEventConnections()
-
--- 8. ESP MODULE (Optimized utilizing cached enemies)
+-- ESP System Integration
 task.spawn(function()
-    while true do
-        task.wait(0.5)
+    while task.wait(0.5) do
         if espEnabled then
-            -- Create ESP for current cached enemies
             for i = 1, #enemyCache do
                 local obj = enemyCache[i]
-                if isEnemyValid(obj) and not activeESPHighlights[obj] then
-                    local highlight = Instance.new("Highlight")
-                    highlight.Name = "CombatEngineESP"
-                    highlight.FillColor = Color3.fromRGB(240, 60, 60)
-                    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-                    highlight.FillTransparency = 0.6
-                    highlight.Adornee = obj
-                    highlight.Parent = obj
-                    activeESPHighlights[obj] = highlight
+                if not activeESPHighlights[obj] then
+                    local h = Instance.new("Highlight")
+                    h.Name, h.FillColor, h.OutlineColor = "CombatEngineESP", Color3.fromRGB(240, 60, 60), Color3.fromRGB(255, 255, 255)
+                    h.FillTransparency, h.Adornee, h.Parent = 0.6, obj, obj
+                    activeESPHighlights[obj] = h
                 end
             end
-            
-            -- Cleanup dead/invalid ESP highlights
-            for obj, highlight in pairs(activeESPHighlights) do
-                if not obj.Parent or not isEnemyValid(obj) then
-                    highlight:Destroy()
-                    activeESPHighlights[obj] = nil
-                end
+        end
+        for obj, h in pairs(activeESPHighlights) do
+            if not table.find(enemyCache, obj) then
+                h:Destroy()
+                activeESPHighlights[obj] = nil
             end
         end
     end
 end)
 
--- // LOAD PROFILE DEPENDENCIES // --
 Rayfield:LoadConfiguration()
