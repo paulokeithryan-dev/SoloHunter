@@ -108,9 +108,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v21",
+   Name = "Modular Combat Engine v22",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Auto Demon Castle Fix Operational",
+   LoadingSubtitle = "Auto Demon Castle Dynamically Synced",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -617,7 +617,9 @@ task.spawn(function()
     end
 end)
 
--- 8. EVENT-BASED AUTO RETRY & AUTO DEMON CASTLE MODULE (v21 Corrected Implementation)
+-- 8. EVENT-BASED AUTO RETRY & AUTO DEMON CASTLE MODULE (v22 Self-Correcting Flow)
+local dynamicFloorCounter = 1 -- Self-healing tracking sequence
+
 task.spawn(function()
     local connection
     local function connectListener()
@@ -627,20 +629,56 @@ task.spawn(function()
             
             if action == "PortalSpawned" then
                 if autoDemonCastleEnabled then
-                    local portalUUID = args[1]
+                    local portalUUID = nil
+                    local roomIndex = nil
+                    
+                    -- Dynamic scanning parses index & UUID regardless of arg order changes
+                    if type(args[1]) == "string" then
+                        portalUUID = args[1]
+                    end
+                    if type(args[2]) == "number" then
+                        roomIndex = args[2]
+                    end
+                    
+                    if not portalUUID then
+                        for _, arg in ipairs(args) do
+                            if type(arg) == "string" then
+                                portalUUID = arg
+                                break
+                            end
+                        end
+                    end
+                    
+                    if not roomIndex then
+                        for _, arg in ipairs(args) do
+                            if type(arg) == "number" then
+                                roomIndex = arg
+                                break
+                            end
+                        end
+                    end
+                    
+                    -- If server doesn't send the next room index, auto-increment fallback
+                    if not roomIndex then
+                        dynamicFloorCounter = dynamicFloorCounter + 1
+                        roomIndex = dynamicFloorCounter
+                    else
+                        dynamicFloorCounter = roomIndex -- Sync counter with active server room
+                    end
+                    
                     if portalUUID then
                         task.spawn(pcall, function()
-                            -- 1. Notify local room handlers that we are entering the gate
-                            safeFireSignal(fullDungeonRemote.OnClientEvent, "NewRoomRemote", portalUUID, 1)
+                            -- 1. Notify local room handlers with the dynamic room index
+                            safeFireSignal(fullDungeonRemote.OnClientEvent, "NewRoomRemote", portalUUID, roomIndex)
                             task.wait(0.1)
                             
-                            -- 2. Trigger localized dungeon coordinate teleportation sequence
+                            -- 2. Trigger physical dungeon coordinates load sequence
                             safeFireSignal(teleportIntoDungeon.OnClientEvent, {
                                 Position = Vector3.new(20000, 0, 20000)
                             })
                             task.wait(0.1)
                             
-                            -- 3. Confirm teleportation state to safely finish Demon Castle load
+                            -- 3. Confirm transition end-state to load active level
                             safeFireSignal(teleportedSignal.OnClientEvent, "DemonCastle", "B", nil, {})
                         end)
                     end
@@ -661,6 +699,7 @@ task.spawn(function()
     
     player.CharacterAdded:Connect(function()
         task.wait(1)
+        dynamicFloorCounter = 1 -- Reset back to base level when loading a brand new dungeon run
         connectListener()
     end)
 end)
