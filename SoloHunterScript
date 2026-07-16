@@ -13,10 +13,6 @@ local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitFor
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 
--- // NEW PORTAL & TELEPORT REMOTES // --
-local teleportIntoDungeon = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RE"):WaitForChild("TeleportIntoDungeon")
-local teleportedSignal = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RE"):WaitForChild("TeleportedSignal")
-
 -- // SYSTEM UPGRADE REMOTES // --
 local fullDungeonRemote = ReplicatedStorage:WaitForChild("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("FullDungeonRemote")
 local dropCreatedRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RE"):WaitForChild("DropCreatedSignal")
@@ -69,18 +65,6 @@ local tweenSpeed = 150
 local positioningMode = "Above"   
 local circleAngle = 0
 
--- // FIRESIGNAL WRAPPER (Executor Compatibility Guard) // --
-local function safeFireSignal(event, ...)
-    if firesignal then
-        local success, err = pcall(firesignal, event, ...)
-        if not success then
-            warn("MCE Engine: Failed to fire signal - " .. tostring(err))
-        end
-    else
-        warn("MCE Engine: Current executor does not support 'firesignal'.")
-    end
-end
-
 -- // NOCLIP STATE ENGINE // --
 local noclipConnection
 local function updateNoclipState()
@@ -108,9 +92,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v23",
+   Name = "Modular Combat Engine v24",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "BY KISSO",
+   LoadingSubtitle = "Auto Demon Castle Proximity Fixed",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -617,77 +601,56 @@ task.spawn(function()
     end
 end)
 
--- 8. WORKSPACE-DRIVEN AUTO DEMON CASTLE & AUTO RETRY MODULE (v23 Workspace Integrated)
+-- 8. WORKSPACE PROXIMITY PORTAL INTERACTION MODULE (v24 Dynamic Interaction)
 local function handleDemonCastlePortal(portalModel)
     if not autoDemonCastleEnabled then return end
-    task.wait(0.3) -- Give the instance children split-second to parse in workspace
+    task.wait(0.5) -- Wait for children properties to finish generating in workspace
     
-    local gate = portalModel:FindFirstChild("Gate")
-    local portalData = gate and gate:FindFirstChild("PortalData")
     local proximityPart = portalModel:FindFirstChild("ProximityPart")
     local prompt = proximityPart and proximityPart:FindFirstChildOfClass("ProximityPrompt")
     
-    if portalData then
-        -- 1. Grab target Floor Number directly from Workspace
-        local floorVal = portalData:FindFirstChild("FloorNumber")
-        local targetFloor = 1
-        if floorVal then
-            if floorVal:IsA("ValueObject") then
-                targetFloor = floorVal.Value
+    if proximityPart and prompt then
+        local character = player.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        
+        if root then
+            -- Temporarily disable auto attack tracking so player doesn't fly away mid-transition
+            local wasAutoAttackEnabled = autoAttackEnabled
+            autoAttackEnabled = false
+            
+            -- Step 1: Physical repositioning directly onto the proximity part (anti-cheat & server distance checks bypass)
+            root.CFrame = proximityPart.CFrame + Vector3.new(0, 3, 0)
+            task.wait(0.2) -- Brief window to ensure replication
+            
+            -- Step 2: Fire the Proximity Prompt
+            if fireproximityprompt then
+                pcall(function()
+                    fireproximityprompt(prompt)
+                end)
             else
-                targetFloor = tonumber(floorVal) or 1
+                -- Robust fallback for non-fireproximityprompt executors
+                pcall(function()
+                    prompt:InputHoldBegin()
+                    task.wait(prompt.HoldDuration + 0.1)
+                    prompt:InputHoldEnd()
+                end)
             end
-        end
-        
-        -- 2. Dynamically extract the UUID string value from PortalData children
-        local portalUUID = nil
-        for _, child in ipairs(portalData:GetChildren()) do
-            if child:IsA("StringValue") and child.Value:match("^%x%x%x%x%x%x%x%x%-") then
-                portalUUID = child.Value
-                break
-            end
-        end
-        
-        -- Attribute fallback scan if it isn't an explicit StringValue child
-        if not portalUUID then
-            portalUUID = portalData:GetAttribute("PortalUUID") or portalData:GetAttribute("PortalID") or "21404134-5316-404f-a7ad-5adec44acc01"
-        end
-        
-        -- 3. Simulate physical player prompt interaction
-        if prompt and fireproximityprompt then
-            pcall(function()
-                fireproximityprompt(prompt)
-            end)
-            task.wait(0.15)
-        end
-        
-        -- 4. Execute client-side transition to load targeted floor
-        task.spawn(pcall, function()
-            -- Notify local client room index managers
-            safeFireSignal(fullDungeonRemote.OnClientEvent, "NewRoomRemote", portalUUID, targetFloor)
-            task.wait(0.1)
             
-            -- Trigger transition coordinate teleport
-            safeFireSignal(teleportIntoDungeon.OnClientEvent, {
-                Position = Vector3.new(20000, 0, 20000)
-            })
-            task.wait(0.1)
-            
-            -- Resolve client-level state
-            safeFireSignal(teleportedSignal.OnClientEvent, "DemonCastle", "B", nil, {})
-        end)
+            task.wait(0.5)
+            autoAttackEnabled = wasAutoAttackEnabled -- Restore combat loop state
+        end
     end
 end
 
 -- Hook listeners to workspace additions
 task.spawn(function()
-    -- Scan immediately in case script loaded late
+    -- Initial Workspace Scan
     local initialPortal = workspace:FindFirstChild("DemonPortalModel")
     if initialPortal then
         handleDemonCastlePortal(initialPortal)
     end
     
-    -- Event-driven detection
+    -- Event-driven Workspace Scan
     workspace.ChildAdded:Connect(function(child)
         if child.Name == "DemonPortalModel" then
             handleDemonCastlePortal(child)
