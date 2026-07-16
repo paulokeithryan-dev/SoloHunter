@@ -12,8 +12,10 @@ local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
-local queuePortalRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("QueuePortal")
-local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
+
+-- // NEW PORTAL & TELEPORT REMOTES // --
+local teleportIntoDungeon = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RE"):WaitForChild("TeleportIntoDungeon")
+local teleportedSignal = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RE"):WaitForChild("TeleportedSignal")
 
 -- // SYSTEM UPGRADE REMOTES // --
 local fullDungeonRemote = ReplicatedStorage:WaitForChild("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("FullDungeonRemote")
@@ -23,6 +25,7 @@ local collectDropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitF
 -- Chest Remotes
 local spawnChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("BossDropsService"):WaitForChild("RE"):WaitForChild("SpawnChest")
 local openChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("BossDropsService"):WaitForChild("RF"):WaitForChild("OpenChest")
+local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
 -- // INDEPENDENT CONFIG VARIABLES // --
 local autoAttackEnabled = false
@@ -66,6 +69,18 @@ local tweenSpeed = 150
 local positioningMode = "Above"   
 local circleAngle = 0
 
+-- // FIRESIGNAL WRAPPER (Executor Compatibility Guard) // --
+local function safeFireSignal(event, ...)
+    if firesignal then
+        local success, err = pcall(firesignal, event, ...)
+        if not success then
+            warn("MCE Engine: Failed to fire signal - " .. tostring(err))
+        end
+    else
+        warn("MCE Engine: Current executor does not support 'firesignal'.")
+    end
+end
+
 -- // NOCLIP STATE ENGINE // --
 local noclipConnection
 local function updateNoclipState()
@@ -93,9 +108,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v20",
+   Name = "Modular Combat Engine v21",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Auto Demon Castle & Portals Engaged",
+   LoadingSubtitle = "Auto Demon Castle Fix Operational",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -602,7 +617,7 @@ task.spawn(function()
     end
 end)
 
--- 8. INSTANT EVENT-BASED AUTO RETRY & AUTO DEMON CASTLE MODULE (v20 Upgrade)
+-- 8. EVENT-BASED AUTO RETRY & AUTO DEMON CASTLE MODULE (v21 Corrected Implementation)
 task.spawn(function()
     local connection
     local function connectListener()
@@ -615,17 +630,23 @@ task.spawn(function()
                     local portalUUID = args[1]
                     if portalUUID then
                         task.spawn(pcall, function()
-                            -- Verify entry status with server
-                            local canEnter = enterGateRemote:InvokeServer(portalUUID)
-                            if canEnter then
-                                -- Queue and transition to next floor
-                                queuePortalRemote:InvokeServer(portalUUID)
-                            end
+                            -- 1. Notify local room handlers that we are entering the gate
+                            safeFireSignal(fullDungeonRemote.OnClientEvent, "NewRoomRemote", portalUUID, 1)
+                            task.wait(0.1)
+                            
+                            -- 2. Trigger localized dungeon coordinate teleportation sequence
+                            safeFireSignal(teleportIntoDungeon.OnClientEvent, {
+                                Position = Vector3.new(20000, 0, 20000)
+                            })
+                            task.wait(0.1)
+                            
+                            -- 3. Confirm teleportation state to safely finish Demon Castle load
+                            safeFireSignal(teleportedSignal.OnClientEvent, "DemonCastle", "B", nil, {})
                         end)
                     end
                 end
             else
-                -- Fallback fallback to standard retry logic for non-portal completion calls
+                -- Standard retry logic fallback for non-portal stages
                 if autoRetryEnabled then
                     task.wait(1.5) 
                     task.spawn(pcall, function()
