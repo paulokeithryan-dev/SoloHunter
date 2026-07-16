@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService") -- Loaded TweenService for smooth glides
 
 local player = Players.LocalPlayer
 
@@ -94,7 +95,7 @@ end
 local Window = Rayfield:CreateWindow({
    Name = "Modular Combat Engine v28",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Virtual Keypress & Hover Active",
+   LoadingSubtitle = "Demon Castle Bypass Recalibrated",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -601,42 +602,100 @@ task.spawn(function()
     end
 end)
 
--- 8. WORKSPACE PROXIMITY PORTAL INTERACTION MODULE (v28 Float & Virtual Keypress)
+
+-- 8. WORKSPACE PROXIMITY PORTAL INTERACTION MODULE (Tweens, keeps 6-stud distance, and virtual mouse clicks the prompt)
+
+-- Core linear tween transition
+local function tweenPlayerTo(targetCFrame, duration)
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+    local tween = TweenService:Create(root, tweenInfo, {CFrame = targetCFrame})
+    
+    local wasAnchored = root.Anchored
+    root.Anchored = true
+    
+    tween:Play()
+    tween.Completed:Wait()
+    
+    root.Anchored = wasAnchored
+end
+
+-- Checks PlayerGui to find custom generated prompt buttons
+local function getPromptButton()
+    local playerGui = player:FindFirstChildOfClass("PlayerGui")
+    if playerGui then
+        for _, gui in ipairs(playerGui:GetChildren()) do
+            if gui:IsA("ScreenGui") or gui:IsA("BillboardGui") then
+                -- Scans deeper for standard click triggers like ImageButtons or TextButtons
+                local btn = gui:FindFirstChildOfClass("ImageButton", true) or gui:FindFirstChildOfClass("TextButton", true)
+                if btn and btn.Visible then
+                    return btn
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Simulates exact mouse-clicks on projected 3D target coordinates or active GUI buttons
+local function virtualClickAt(position)
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+    
+    local clickX, clickY
+    local customButton = getPromptButton()
+    
+    if customButton then
+        local absPos = customButton.AbsolutePosition
+        local absSize = customButton.AbsoluteSize
+        -- Center coordinate calculation with standard Roblox Core topbar offset compensation (+36)
+        clickX = absPos.X + (absSize.X / 2)
+        clickY = absPos.Y + (absSize.Y / 2) + 36
+    else
+        -- Fallback projection directly onto 3D gate location space
+        local screenPos, onScreen = camera:WorldToViewportPoint(position)
+        if onScreen then
+            clickX = screenPos.X
+            clickY = screenPos.Y
+        end
+    end
+    
+    if clickX and clickY then
+        -- Hover, depress, wait, and release emulation
+        VirtualInputManager:SendMouseMoveEvent(clickX, clickY, game)
+        task.wait(0.1)
+        VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, true, game, 0)
+        task.wait(0.1)
+        VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, false, game, 0)
+    end
+end
+
 local function triggerPortalInteraction(portalModel)
-    -- DEEP MODEL SEARCH: Find prompt nested anywhere inside portalModel hierarchy
     local prompt = portalModel:FindFirstChildOfClass("ProximityPrompt") or portalModel:FindFirstChild("ProximityPrompt", true)
     
     if prompt then
         pcall(function()
-            -- DISABLE LINE OF SIGHT: Avoid physical object blocks
             prompt.RequiresLineOfSight = false
-            -- EXTEND RANGE: Guarantee the prompt remains active
             prompt.MaxActivationDistance = 500
             prompt.Enabled = true
         end)
         
-        -- Method A: API Shortcut
+        -- Execute Prompt Interaction
         if fireproximityprompt then
             pcall(function() fireproximityprompt(prompt) end)
+        else
+            pcall(function()
+                prompt:InputHoldBegin()
+                task.wait(prompt.HoldDuration + 0.1)
+                prompt:InputHoldEnd()
+            end)
         end
-        
-        -- Method B: Object Engine Simulation
-        pcall(function()
-            prompt:InputHoldBegin()
-            task.wait(prompt.HoldDuration + 0.1)
-            prompt:InputHoldEnd()
-        end)
-
-        -- Method C: Virtual Key-Press (Simulate direct mechanical key activation)
-        local targetKey = prompt.KeyboardKeyCode or Enum.KeyCode.E
-        pcall(function()
-            VirtualInputManager:SendKeyEvent(true, targetKey, false, game)
-            task.wait(prompt.HoldDuration + 0.1)
-            VirtualInputManager:SendKeyEvent(false, targetKey, false, game)
-        end)
     end
 
-    -- Backup Trigger: Touch interest fallback
+    -- Backup Touch Trigger Fallback
     local interactivePart = portalModel:FindFirstChild("ProximityPart") or portalModel:FindFirstChild("Gate") or portalModel:FindFirstChildOfClass("BasePart")
     if interactivePart then
         local character = player.Character
@@ -653,8 +712,17 @@ end
 
 local function handleDemonCastlePortal(portalModel)
     if not autoDemonCastleEnabled then return end
-    task.wait(0.5) -- Wait for network property replication
+    task.wait(0.5) -- Wait for properties to replicate fully
     
+    -- Strip physical collisions inside the model
+    pcall(function()
+        for _, part in ipairs(portalModel:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end)
+
     local destinationPart = portalModel:FindFirstChild("ProximityPart") or portalModel:FindFirstChild("Gate") or portalModel:FindFirstChildOfClass("BasePart")
     
     if destinationPart then
@@ -662,44 +730,56 @@ local function handleDemonCastlePortal(portalModel)
         local root = character and character:FindFirstChild("HumanoidRootPart")
         
         if root then
-            -- Pause auto-attack loop so positioning isn't overwritten
             local wasAutoAttackEnabled = autoAttackEnabled
             autoAttackEnabled = false
             
-            -- Keep collision off so the tween isn't obstructed
-            pcall(function()
-                for _, part in ipairs(portalModel:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
+            -- Turn off noclip/collisions for character temporarily so we can tween cleanly
+            local characterParts = {}
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    characterParts[part] = part.CanCollide
+                    part.CanCollide = false
                 end
-            end)
-
-            -- Float exactly 5 studs above the target gate to fire interaction safely
-            local floatTargetCFrame = destinationPart.CFrame * CFrame.new(0, 5, 0)
-            
-            -- Smooth Tween to floating point (Tween Speed scale)
-            local startCFrame = root.CFrame
-            local distance = (floatTargetCFrame.Position - startCFrame.Position).Magnitude
-            local totalDuration = math.max(0.2, distance / tweenSpeed)
-            local elapsed = 0
-            
-            while elapsed < totalDuration do
-                local t = elapsed / totalDuration
-                root.CFrame = startCFrame:Lerp(floatTargetCFrame, t)
-                elapsed = elapsed + RunService.Heartbeat:Wait()
             end
-            root.CFrame = floatTargetCFrame
             
-            -- Keep character suspended while processing
-            root.Anchored = true
-            task.wait(0.1)
+            -- Calculate a precise position exactly 6 studs away from the portal (horizontal plane projection)
+            local portalPos = destinationPart.Position
+            local playerPos = root.Position
+            local direction = (playerPos - portalPos) * Vector3.new(1, 0, 1) 
+            if direction.Magnitude == 0 then
+                direction = Vector3.new(0, 0, 1)
+            end
+            direction = direction.Unit
             
-            -- Execute physical bypass & virtual click inputs
+            -- Set up 6-stud spacing
+            local targetPos = portalPos + (direction * 6)
+            local targetCFrame = CFrame.lookAt(targetPos, portalPos)
+            
+            -- Dynamic duration calculation matching configured tween speed
+            local distance = (root.Position - targetPos).Magnitude
+            local duration = math.max(0.5, distance / tweenSpeed)
+            
+            -- Perform tween transit
+            tweenPlayerTo(targetCFrame, duration)
+            task.wait(0.25) -- Wait for physical positioning to settle
+            
+            -- Fire standard framework bypasses
             triggerPortalInteraction(portalModel)
             
-            task.wait(0.6)
-            root.Anchored = false -- Release suspended physics state
+            -- Click the portal's custom clickable prompt icon
+            pcall(function()
+                virtualClickAt(destinationPart.Position)
+            end)
+            
+            task.wait(0.5)
+            
+            -- Restore original collisions
+            for part, originalCollide in pairs(characterParts) do
+                if part and part.Parent then
+                    part.CanCollide = originalCollide
+                end
+            end
+            
             autoAttackEnabled = wasAutoAttackEnabled
         end
     end
@@ -720,6 +800,7 @@ task.spawn(function()
         end
     end)
 end)
+
 
 -- Classic dungeon retry event handler
 task.spawn(function()
@@ -771,6 +852,7 @@ end)
 
 -- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE
 task.spawn(function()
+    local _ = workspace
     local chestConnection
     local function connectChestListener()
         if chestConnection then chestConnection:Disconnect() end
