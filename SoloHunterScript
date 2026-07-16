@@ -110,7 +110,7 @@ end
 local Window = Rayfield:CreateWindow({
    Name = "Modular Combat Engine v23",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Auto Demon Castle Workspace Tracking Fix",
+   LoadingSubtitle = "BY KISSO",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -617,119 +617,102 @@ task.spawn(function()
     end
 end)
 
--- 8. EVENT-BASED AUTO RETRY & AUTO DEMON CASTLE MODULE (v23 Dynamic Ground-Truth Resolution)
-local dynamicFloorCounter = 1
-
--- Helper function to read the absolute dynamic floor number from workspace configs
-local function getWorkspaceFloorNumber()
-    local portalModel = workspace:FindFirstChild("DemonPortalModel")
-    if portalModel then
-        local gate = portalModel:FindFirstChild("Gate")
-        local portalData = gate and gate:FindFirstChild("PortalData")
-        if portalData then
-            -- Safely inspect FloorNumber Value Object
-            local floorNumObj = portalData:FindFirstChild("FloorNumber")
-            if floorNumObj and floorNumObj:IsA("ValueBase") then
-                return floorNumObj.Value
-            end
-            -- Attribute Fallback
-            local attrib = portalData:GetAttribute("FloorNumber")
-            if attrib then
-                return attrib
+-- 8. WORKSPACE-DRIVEN AUTO DEMON CASTLE & AUTO RETRY MODULE (v23 Workspace Integrated)
+local function handleDemonCastlePortal(portalModel)
+    if not autoDemonCastleEnabled then return end
+    task.wait(0.3) -- Give the instance children split-second to parse in workspace
+    
+    local gate = portalModel:FindFirstChild("Gate")
+    local portalData = gate and gate:FindFirstChild("PortalData")
+    local proximityPart = portalModel:FindFirstChild("ProximityPart")
+    local prompt = proximityPart and proximityPart:FindFirstChildOfClass("ProximityPrompt")
+    
+    if portalData then
+        -- 1. Grab target Floor Number directly from Workspace
+        local floorVal = portalData:FindFirstChild("FloorNumber")
+        local targetFloor = 1
+        if floorVal then
+            if floorVal:IsA("ValueObject") then
+                targetFloor = floorVal.Value
+            else
+                targetFloor = tonumber(floorVal) or 1
             end
         end
+        
+        -- 2. Dynamically extract the UUID string value from PortalData children
+        local portalUUID = nil
+        for _, child in ipairs(portalData:GetChildren()) do
+            if child:IsA("StringValue") and child.Value:match("^%x%x%x%x%x%x%x%x%-") then
+                portalUUID = child.Value
+                break
+            end
+        end
+        
+        -- Attribute fallback scan if it isn't an explicit StringValue child
+        if not portalUUID then
+            portalUUID = portalData:GetAttribute("PortalUUID") or portalData:GetAttribute("PortalID") or "21404134-5316-404f-a7ad-5adec44acc01"
+        end
+        
+        -- 3. Simulate physical player prompt interaction
+        if prompt and fireproximityprompt then
+            pcall(function()
+                fireproximityprompt(prompt)
+            end)
+            task.wait(0.15)
+        end
+        
+        -- 4. Execute client-side transition to load targeted floor
+        task.spawn(pcall, function()
+            -- Notify local client room index managers
+            safeFireSignal(fullDungeonRemote.OnClientEvent, "NewRoomRemote", portalUUID, targetFloor)
+            task.wait(0.1)
+            
+            -- Trigger transition coordinate teleport
+            safeFireSignal(teleportIntoDungeon.OnClientEvent, {
+                Position = Vector3.new(20000, 0, 20000)
+            })
+            task.wait(0.1)
+            
+            -- Resolve client-level state
+            safeFireSignal(teleportedSignal.OnClientEvent, "DemonCastle", "B", nil, {})
+        end)
     end
-    return nil
 end
 
+-- Hook listeners to workspace additions
+task.spawn(function()
+    -- Scan immediately in case script loaded late
+    local initialPortal = workspace:FindFirstChild("DemonPortalModel")
+    if initialPortal then
+        handleDemonCastlePortal(initialPortal)
+    end
+    
+    -- Event-driven detection
+    workspace.ChildAdded:Connect(function(child)
+        if child.Name == "DemonPortalModel" then
+            handleDemonCastlePortal(child)
+        end
+    end)
+end)
+
+-- Classic dungeon retry event handler
 task.spawn(function()
     local connection
     local function connectListener()
         if connection then connection:Disconnect() end
         connection = fullDungeonRemote.OnClientEvent:Connect(function(action, ...)
-            local args = {...}
-            
-            if action == "PortalSpawned" then
-                if autoDemonCastleEnabled then
-                    local portalUUID = nil
-                    local roomIndex = nil
-                    
-                    -- Dynamic scanning parses index & UUID regardless of parameter changes
-                    if type(args[1]) == "string" then
-                        portalUUID = args[1]
-                    end
-                    if type(args[2]) == "number" then
-                        roomIndex = args[2]
-                    end
-                    
-                    if not portalUUID then
-                        for _, arg in ipairs(args) do
-                            if type(arg) == "string" then
-                                portalUUID = arg
-                                break
-                            end
-                        end
-                    end
-                    
-                    -- Wait briefly for replication before parsing physical workspace properties
-                    task.wait(0.3)
-                    
-                    local wsFloor = getWorkspaceFloorNumber()
-                    if wsFloor then
-                        roomIndex = wsFloor
-                    end
-                    
-                    -- Secondary fallbacks if workspace object is missing or streaming limits apply
-                    if not roomIndex then
-                        for _, arg in ipairs(args) do
-                            if type(arg) == "number" then
-                                roomIndex = arg
-                                break
-                            end
-                        end
-                    end
-                    
-                    if not roomIndex then
-                        dynamicFloorCounter = dynamicFloorCounter + 1
-                        roomIndex = dynamicFloorCounter
-                    else
-                        dynamicFloorCounter = roomIndex -- Sync track counter
-                    end
-                    
-                    if portalUUID then
-                        task.spawn(pcall, function()
-                            -- 1. Notify local room handlers with the exact floor resolved
-                            safeFireSignal(fullDungeonRemote.OnClientEvent, "NewRoomRemote", portalUUID, roomIndex)
-                            task.wait(0.1)
-                            
-                            -- 2. Trigger physical dungeon coordinates load sequence
-                            safeFireSignal(teleportIntoDungeon.OnClientEvent, {
-                                Position = Vector3.new(20000, 0, 20000)
-                            })
-                            task.wait(0.1)
-                            
-                            -- 3. Confirm transition end-state to load active level
-                            safeFireSignal(teleportedSignal.OnClientEvent, "DemonCastle", "B", nil, {})
-                        end)
-                    end
-                end
-            else
-                -- Standard retry logic fallback for non-portal stages
-                if autoRetryEnabled then
-                    task.wait(1.5) 
-                    task.spawn(pcall, function()
-                        retryDungeonRemote:InvokeServer("retry")
-                    end)
-                end
+            if action ~= "PortalSpawned" and autoRetryEnabled then
+                task.wait(1.5) 
+                task.spawn(pcall, function()
+                    retryDungeonRemote:InvokeServer("retry")
+                end)
             end
         end)
     end
     
     connectListener()
-    
     player.CharacterAdded:Connect(function()
         task.wait(1)
-        dynamicFloorCounter = 1 -- Reset tracking on new session start
         connectListener()
     end)
 end)
