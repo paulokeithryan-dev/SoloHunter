@@ -108,9 +108,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v22",
+   Name = "Modular Combat Engine v23",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Auto Demon Castle Dynamically Synced",
+   LoadingSubtitle = "Auto Demon Castle Workspace Tracking Fix",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -617,8 +617,30 @@ task.spawn(function()
     end
 end)
 
--- 8. EVENT-BASED AUTO RETRY & AUTO DEMON CASTLE MODULE (v22 Self-Correcting Flow)
-local dynamicFloorCounter = 1 -- Self-healing tracking sequence
+-- 8. EVENT-BASED AUTO RETRY & AUTO DEMON CASTLE MODULE (v23 Dynamic Ground-Truth Resolution)
+local dynamicFloorCounter = 1
+
+-- Helper function to read the absolute dynamic floor number from workspace configs
+local function getWorkspaceFloorNumber()
+    local portalModel = workspace:FindFirstChild("DemonPortalModel")
+    if portalModel then
+        local gate = portalModel:FindFirstChild("Gate")
+        local portalData = gate and gate:FindFirstChild("PortalData")
+        if portalData then
+            -- Safely inspect FloorNumber Value Object
+            local floorNumObj = portalData:FindFirstChild("FloorNumber")
+            if floorNumObj and floorNumObj:IsA("ValueBase") then
+                return floorNumObj.Value
+            end
+            -- Attribute Fallback
+            local attrib = portalData:GetAttribute("FloorNumber")
+            if attrib then
+                return attrib
+            end
+        end
+    end
+    return nil
+end
 
 task.spawn(function()
     local connection
@@ -632,7 +654,7 @@ task.spawn(function()
                     local portalUUID = nil
                     local roomIndex = nil
                     
-                    -- Dynamic scanning parses index & UUID regardless of arg order changes
+                    -- Dynamic scanning parses index & UUID regardless of parameter changes
                     if type(args[1]) == "string" then
                         portalUUID = args[1]
                     end
@@ -649,6 +671,15 @@ task.spawn(function()
                         end
                     end
                     
+                    -- Wait briefly for replication before parsing physical workspace properties
+                    task.wait(0.3)
+                    
+                    local wsFloor = getWorkspaceFloorNumber()
+                    if wsFloor then
+                        roomIndex = wsFloor
+                    end
+                    
+                    -- Secondary fallbacks if workspace object is missing or streaming limits apply
                     if not roomIndex then
                         for _, arg in ipairs(args) do
                             if type(arg) == "number" then
@@ -658,17 +689,16 @@ task.spawn(function()
                         end
                     end
                     
-                    -- If server doesn't send the next room index, auto-increment fallback
                     if not roomIndex then
                         dynamicFloorCounter = dynamicFloorCounter + 1
                         roomIndex = dynamicFloorCounter
                     else
-                        dynamicFloorCounter = roomIndex -- Sync counter with active server room
+                        dynamicFloorCounter = roomIndex -- Sync track counter
                     end
                     
                     if portalUUID then
                         task.spawn(pcall, function()
-                            -- 1. Notify local room handlers with the dynamic room index
+                            -- 1. Notify local room handlers with the exact floor resolved
                             safeFireSignal(fullDungeonRemote.OnClientEvent, "NewRoomRemote", portalUUID, roomIndex)
                             task.wait(0.1)
                             
@@ -699,7 +729,7 @@ task.spawn(function()
     
     player.CharacterAdded:Connect(function()
         task.wait(1)
-        dynamicFloorCounter = 1 -- Reset back to base level when loading a brand new dungeon run
+        dynamicFloorCounter = 1 -- Reset tracking on new session start
         connectListener()
     end)
 end)
