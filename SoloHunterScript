@@ -92,9 +92,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v27",
+   Name = "Modular Combat Engine v28",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Demon Castle Bypass Recalibrated",
+   LoadingSubtitle = "Demon Castle Float-Lock Enabled",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -601,21 +601,21 @@ task.spawn(function()
     end
 end)
 
--- 8. WORKSPACE PROXIMITY PORTAL INTERACTION MODULE (v27 Physical & Prompt Bypass)
+-- 8. WORKSPACE PROXIMITY PORTAL INTERACTION MODULE (v28 Float-Suspended Interaction Bypasses)
 local function triggerPortalInteraction(portalModel)
-    -- 1. DEEP MODEL SEARCH: Find prompt nested anywhere inside the portal model
+    -- DEEP MODEL SEARCH: Recursively scans all branches of the model container to isolate the prompt
     local prompt = portalModel:FindFirstChildOfClass("ProximityPrompt") or portalModel:FindFirstChild("ProximityPrompt", true)
     
     if prompt then
         pcall(function()
-            -- 2. DISABLE LINE OF SIGHT: Allows firing even if buried inside meshes/collision parts
+            -- DISABLE LINE OF SIGHT: Absolute bypass for prompt blockages/collision parts
             prompt.RequiresLineOfSight = false
-            -- 3. EXTEND RANGE: Force maximum activation distance
+            -- EXTEND RANGE: Extreme activation limits bypass
             prompt.MaxActivationDistance = 500
             prompt.Enabled = true
         end)
         
-        -- Execute Prompt Interaction
+        -- Physical Simulator Trigger
         if fireproximityprompt then
             pcall(function() fireproximityprompt(prompt) end)
         else
@@ -627,7 +627,7 @@ local function triggerPortalInteraction(portalModel)
         end
     end
 
-    -- Backup Trigger: Touch interest fallback
+    -- Backup Trigger: Direct coordinate/touch boundary trigger
     local interactivePart = portalModel:FindFirstChild("ProximityPart") or portalModel:FindFirstChild("Gate") or portalModel:FindFirstChildOfClass("BasePart")
     if interactivePart then
         local character = player.Character
@@ -644,9 +644,9 @@ end
 
 local function handleDemonCastlePortal(portalModel)
     if not autoDemonCastleEnabled then return end
-    task.wait(0.5) -- Wait for properties to replicate fully
+    task.wait(0.5) -- Let workspace properties fully replicate
     
-    -- Strip physical collisions globally inside the model to bypass clipping checks
+    -- De-collide portal structures locally so they can never obstruct movement
     pcall(function()
         for _, part in ipairs(portalModel:GetDescendants()) do
             if part:IsA("BasePart") then
@@ -662,21 +662,26 @@ local function handleDemonCastlePortal(portalModel)
         local root = character and character:FindFirstChild("HumanoidRootPart")
         
         if root then
+            -- Pause tracking during teleport transitions
             local wasAutoAttackEnabled = autoAttackEnabled
             autoAttackEnabled = false
             
-            -- 4. TEMPORARY ANCHOR SAFETY: Locks the player's vector state before interaction
+            -- TEMPORARY ANCHOR SAFETY: Hard freeze the physics state before moving
             root.Anchored = true
             
-            -- Translate exact position to interaction center
-            root.CFrame = destinationPart.CFrame
-            task.wait(0.25) -- Hold for replication frame
+            -- FLOATING REPOSITION: Shift character 6 studs directly ABOVE the gate/prompt part to prevent falling/glitching
+            -- Also locks your character's focus down towards the destination target
+            root.CFrame = CFrame.new(destinationPart.Position + Vector3.new(0, 6, 0), destinationPart.Position)
+            task.wait(0.3) -- Frame buffer to let the Roblox engine update positions
             
-            -- Execute physical bypass interaction
+            -- Trigger physical interaction protocols while safely floating
             triggerPortalInteraction(portalModel)
             
-            task.wait(0.5)
-            root.Anchored = false -- Safety release
+            -- STAY FLOATING: Keep physical states fully suspended in the air during prompt execution
+            task.wait(1.5)
+            
+            -- Release physical locking and restore normal combat patterns
+            root.Anchored = false
             autoAttackEnabled = wasAutoAttackEnabled
         end
     end
