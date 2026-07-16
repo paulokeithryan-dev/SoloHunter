@@ -94,7 +94,7 @@ end
 local Window = Rayfield:CreateWindow({
    Name = "Modular Combat Engine v28",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Demon Castle Float-Lock Enabled",
+   LoadingSubtitle = "Virtual Keypress & Hover Active",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -601,33 +601,42 @@ task.spawn(function()
     end
 end)
 
--- 8. WORKSPACE PROXIMITY PORTAL INTERACTION MODULE (v28 Float-Suspended Interaction Bypasses)
+-- 8. WORKSPACE PROXIMITY PORTAL INTERACTION MODULE (v28 Float & Virtual Keypress)
 local function triggerPortalInteraction(portalModel)
-    -- DEEP MODEL SEARCH: Recursively scans all branches of the model container to isolate the prompt
+    -- DEEP MODEL SEARCH: Find prompt nested anywhere inside portalModel hierarchy
     local prompt = portalModel:FindFirstChildOfClass("ProximityPrompt") or portalModel:FindFirstChild("ProximityPrompt", true)
     
     if prompt then
         pcall(function()
-            -- DISABLE LINE OF SIGHT: Absolute bypass for prompt blockages/collision parts
+            -- DISABLE LINE OF SIGHT: Avoid physical object blocks
             prompt.RequiresLineOfSight = false
-            -- EXTEND RANGE: Extreme activation limits bypass
+            -- EXTEND RANGE: Guarantee the prompt remains active
             prompt.MaxActivationDistance = 500
             prompt.Enabled = true
         end)
         
-        -- Physical Simulator Trigger
+        -- Method A: API Shortcut
         if fireproximityprompt then
             pcall(function() fireproximityprompt(prompt) end)
-        else
-            pcall(function()
-                prompt:InputHoldBegin()
-                task.wait(prompt.HoldDuration + 0.1)
-                prompt:InputHoldEnd()
-            end)
         end
+        
+        -- Method B: Object Engine Simulation
+        pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(prompt.HoldDuration + 0.1)
+            prompt:InputHoldEnd()
+        end)
+
+        -- Method C: Virtual Key-Press (Simulate direct mechanical key activation)
+        local targetKey = prompt.KeyboardKeyCode or Enum.KeyCode.E
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, targetKey, false, game)
+            task.wait(prompt.HoldDuration + 0.1)
+            VirtualInputManager:SendKeyEvent(false, targetKey, false, game)
+        end)
     end
 
-    -- Backup Trigger: Direct coordinate/touch boundary trigger
+    -- Backup Trigger: Touch interest fallback
     local interactivePart = portalModel:FindFirstChild("ProximityPart") or portalModel:FindFirstChild("Gate") or portalModel:FindFirstChildOfClass("BasePart")
     if interactivePart then
         local character = player.Character
@@ -644,17 +653,8 @@ end
 
 local function handleDemonCastlePortal(portalModel)
     if not autoDemonCastleEnabled then return end
-    task.wait(0.5) -- Let workspace properties fully replicate
+    task.wait(0.5) -- Wait for network property replication
     
-    -- De-collide portal structures locally so they can never obstruct movement
-    pcall(function()
-        for _, part in ipairs(portalModel:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
-        end
-    end)
-
     local destinationPart = portalModel:FindFirstChild("ProximityPart") or portalModel:FindFirstChild("Gate") or portalModel:FindFirstChildOfClass("BasePart")
     
     if destinationPart then
@@ -662,26 +662,44 @@ local function handleDemonCastlePortal(portalModel)
         local root = character and character:FindFirstChild("HumanoidRootPart")
         
         if root then
-            -- Pause tracking during teleport transitions
+            -- Pause auto-attack loop so positioning isn't overwritten
             local wasAutoAttackEnabled = autoAttackEnabled
             autoAttackEnabled = false
             
-            -- TEMPORARY ANCHOR SAFETY: Hard freeze the physics state before moving
+            -- Keep collision off so the tween isn't obstructed
+            pcall(function()
+                for _, part in ipairs(portalModel:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end)
+
+            -- Float exactly 5 studs above the target gate to fire interaction safely
+            local floatTargetCFrame = destinationPart.CFrame * CFrame.new(0, 5, 0)
+            
+            -- Smooth Tween to floating point (Tween Speed scale)
+            local startCFrame = root.CFrame
+            local distance = (floatTargetCFrame.Position - startCFrame.Position).Magnitude
+            local totalDuration = math.max(0.2, distance / tweenSpeed)
+            local elapsed = 0
+            
+            while elapsed < totalDuration do
+                local t = elapsed / totalDuration
+                root.CFrame = startCFrame:Lerp(floatTargetCFrame, t)
+                elapsed = elapsed + RunService.Heartbeat:Wait()
+            end
+            root.CFrame = floatTargetCFrame
+            
+            -- Keep character suspended while processing
             root.Anchored = true
+            task.wait(0.1)
             
-            -- FLOATING REPOSITION: Shift character 6 studs directly ABOVE the gate/prompt part to prevent falling/glitching
-            -- Also locks your character's focus down towards the destination target
-            root.CFrame = CFrame.new(destinationPart.Position + Vector3.new(0, 6, 0), destinationPart.Position)
-            task.wait(0.3) -- Frame buffer to let the Roblox engine update positions
-            
-            -- Trigger physical interaction protocols while safely floating
+            -- Execute physical bypass & virtual click inputs
             triggerPortalInteraction(portalModel)
             
-            -- STAY FLOATING: Keep physical states fully suspended in the air during prompt execution
-            task.wait(1.5)
-            
-            -- Release physical locking and restore normal combat patterns
-            root.Anchored = false
+            task.wait(0.6)
+            root.Anchored = false -- Release suspended physics state
             autoAttackEnabled = wasAutoAttackEnabled
         end
     end
