@@ -92,9 +92,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v25",
+   Name = "Modular Combat Engine v26",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Auto Demon Castle Proximity & UI Fixed",
+   LoadingSubtitle = "Obstruction Bypass Active",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -601,11 +601,8 @@ task.spawn(function()
     end
 end)
 
--- 8. WORKSPACE PROXIMITY PORTAL INTERACTION MODULE (v25 Dynamic Bypass)
+-- 8. WORKSPACE PROXIMITY PORTAL INTERACTION MODULE (v26 - Obstruction Bypass)
 local function forceGateUIAndInteraction(portalModel)
-    local gate = portalModel:FindFirstChild("Gate") or portalModel:FindFirstChild("ProximityPart")
-    if not gate then return end
-
     local playerGui = player:WaitForChild("PlayerGui")
 
     -- Clean up previous forced UI instances to avoid overlay stacking
@@ -622,64 +619,77 @@ local function forceGateUIAndInteraction(portalModel)
     screenGui.ResetOnSpawn = false
     screenGui.Parent = playerGui
 
-    -- Clone original SurfaceGuis to draw them in screen-space
-    local function cloneSurfaceGui(guiName)
-        local original = gate:FindFirstChild(guiName)
-        if original then
-            local clone = original:Clone()
-            clone.Name = guiName .. "_Cloned"
-            for _, child in ipairs(clone:GetChildren()) do
-                if child:IsA("GuiObject") then
-                    child.Parent = screenGui
+    -- Search for physical interactive gate elements inside the portal model
+    local gate = portalModel:FindFirstChild("Gate") or portalModel:FindFirstChild("ProximityPart") or portalModel:FindFirstChildOfClass("BasePart")
+
+    if gate then
+        -- Clone original SurfaceGuis to draw them in screen-space
+        local function cloneSurfaceGui(guiName)
+            local original = gate:FindFirstChild(guiName)
+            if original then
+                local clone = original:Clone()
+                clone.Name = guiName .. "_Cloned"
+                for _, child in ipairs(clone:GetChildren()) do
+                    if child:IsA("GuiObject") then
+                        child.Parent = screenGui
+                    end
                 end
+                clone:Destroy()
             end
-            clone:Destroy()
         end
-    end
 
-    cloneSurfaceGui("OptimizedSurfaceGui")
-    cloneSurfaceGui("OptimizedSurfaceGuiBack")
+        cloneSurfaceGui("OptimizedSurfaceGui")
+        cloneSurfaceGui("OptimizedSurfaceGuiBack")
 
-    -- Force BillboardGui stats visible
-    local portalData = gate:FindFirstChild("PortalData")
-    if portalData and portalData:IsA("BillboardGui") then
-        local clone = portalData:Clone()
-        clone.Name = "PortalData_Cloned"
-        clone.AlwaysOnTop = true
-        clone.Adornee = player.Character and player.Character:FindFirstChild("Head") or gate
-        clone.Parent = playerGui
-    end
+        -- Force BillboardGui stats visible
+        local portalData = gate:FindFirstChild("PortalData")
+        if portalData and portalData:IsA("BillboardGui") then
+            local clone = portalData:Clone()
+            clone.Name = "PortalData_Cloned"
+            clone.AlwaysOnTop = true
+            clone.Adornee = player.Character and player.Character:FindFirstChild("Head") or gate
+            clone.Parent = playerGui
+        end
 
-    -- Physical Interaction Triggers (Simulate presence and interactions)
-    local character = player.Character
-    local hrp = character and character:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        -- Method A: Touch Interests (Simulating player standing directly inside gate)
-        pcall(function()
-            firetouchinterest(hrp, gate, 0)
-            task.wait(0.1)
-            firetouchinterest(hrp, gate, 1)
-        end)
-    end
-
-    -- Method B: Proximity Prompts
-    local prompt = gate:FindFirstChildOfClass("ProximityPrompt") or gate:FindFirstChild("ProximityPrompt", true)
-    if prompt then
-        if fireproximityprompt then
-            pcall(function() fireproximityprompt(prompt) end)
-        else
+        -- Physical Touch Interest (Simulating player standing inside gate)
+        local character = player.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if hrp then
             pcall(function()
-                prompt:InputHoldBegin()
-                task.wait(prompt.HoldDuration + 0.1)
-                prompt:InputHoldEnd()
+                firetouchinterest(hrp, gate, 0)
+                task.wait(0.1)
+                firetouchinterest(hrp, gate, 1)
             end)
         end
+
+        -- Click Detectors
+        local clickDetector = gate:FindFirstChildOfClass("ClickDetector") or gate:FindFirstChild("ClickDetector", true)
+        if clickDetector and fireclickdetector then
+            pcall(function() fireclickdetector(clickDetector) end)
+        end
     end
 
-    -- Method C: Click Detectors
-    local clickDetector = gate:FindFirstChildOfClass("ClickDetector") or gate:FindFirstChild("ClickDetector", true)
-    if clickDetector and fireclickdetector then
-        pcall(function() fireclickdetector(clickDetector) end)
+    -- [CRITICAL LINE-OF-SIGHT OBSTRUCTION BYPASS]
+    -- Scans the entire Portal Model for any ProximityPrompt, forces them active,
+    -- and bypasses game engine Raycasting (obstruction physics check).
+    for _, descendant in ipairs(portalModel:GetDescendants()) do
+        if descendant:IsA("ProximityPrompt") then
+            pcall(function()
+                descendant.RequiresLineOfSight = false  -- IGNORES CHAINS & SCREEN OBJECTS
+                descendant.MaxActivationDistance = 500  -- Extends activation reach
+                descendant.Enabled = true               -- Forces visual active state
+            end)
+
+            if fireproximityprompt then
+                pcall(function() fireproximityprompt(descendant) end)
+            else
+                pcall(function()
+                    descendant:InputHoldBegin()
+                    task.wait(descendant.HoldDuration + 0.1)
+                    descendant:InputHoldEnd()
+                end)
+            end
+        end
     end
 end
 
@@ -702,7 +712,7 @@ local function handleDemonCastlePortal(portalModel)
             root.CFrame = proximityPart.CFrame + Vector3.new(0, 3, 0)
             task.wait(0.2) -- Brief window to ensure replication
             
-            -- Step 2: Fire UI fixes and simulated interaction methods
+            -- Step 2: Fire UI fixes and simulated interaction methods (Obstruction Bypasses)
             forceGateUIAndInteraction(portalModel)
             
             task.wait(0.5)
