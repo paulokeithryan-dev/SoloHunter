@@ -4,7 +4,6 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 
@@ -13,7 +12,10 @@ local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
-local queuePortalRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("QueuePortal")
+
+-- // PORTAL & TELEPORT REMOTES // --
+local teleportIntoDungeon = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RE"):WaitForChild("TeleportIntoDungeon")
+local teleportedSignal = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RE"):WaitForChild("TeleportedSignal")
 
 -- // SYSTEM UPGRADE REMOTES // --
 local fullDungeonRemote = ReplicatedStorage:WaitForChild("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("FullDungeonRemote")
@@ -25,7 +27,7 @@ local spawnChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitFo
 local openChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("BossDropsService"):WaitForChild("RF"):WaitForChild("OpenChest")
 local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
--- // CONFIG VARIABLES // --
+-- // INDEPENDENT CONFIG VARIABLES // --
 local autoAttackEnabled = false
 local autoAttackRange = 300     
 local autoEquipEnabled = true 
@@ -37,7 +39,11 @@ local HOVER_HEIGHT = 4
 
 -- // SKILLS SYSTEM CONFIG // --
 local autoSkillsEnabled = false
-local castF, castR, castC, castG, castV = false, false, false, false, false
+local castF = false
+local castR = false
+local castC = false
+local castG = false
+local castV = false
 local SKILL_INTERVAL = 1.5      
 
 -- // SAFE SPOT SYSTEM CONFIG // --
@@ -63,9 +69,17 @@ local tweenSpeed = 150
 local positioningMode = "Above"   
 local circleAngle = 0
 
--- // STATE ENGINE CACHE FOR DEMON CASTLE // --
-local isProcessingPortal = false
-local portalFacingConnection = nil
+-- // FIRESIGNAL WRAPPER (Executor Compatibility Guard) // --
+local function safeFireSignal(event, ...)
+    if firesignal then
+        local success, err = pcall(firesignal, event, ...)
+        if not success then
+            warn("MCE Engine: Failed to fire signal - " .. tostring(err))
+        end
+    else
+        warn("MCE Engine: Current executor does not support 'firesignal'.")
+    end
+end
 
 -- // NOCLIP STATE ENGINE // --
 local noclipConnection
@@ -94,9 +108,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v29",
+   Name = "Modular Combat Engine v22",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Demon Castle State Machine Active",
+   LoadingSubtitle = "Demon Castle Sequence Corrected",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -121,24 +135,114 @@ CombatTab:CreateToggle({
    end,
 })
 
-CombatTab:CreateToggle({Name = "Auto-Equip Weapon", CurrentValue = true, Flag = "MCE_AutoEquip", Callback = function(Value) autoEquipEnabled = Value end})
-CombatTab:CreateSlider({Name = "Auto Attack Detection Range", Range = {10, 5000}, Increment = 50, CurrentValue = 300, Flag = "MCE_AttackRange", Callback = function(Value) autoAttackRange = Value end})
-CombatTab:CreateToggle({Name = "Exact Part Alignment (No Hitbox)", CurrentValue = false, Flag = "MCE_ExactAlignment", Callback = function(Value) exactPartAlignment = Value end})
-CombatTab:CreateSlider({Name = "Attack Proximity Distance", Range = {1, 15}, Increment = 1, CurrentValue = 3, Flag = "MCE_ProximityDist", Callback = function(Value) attackDistance = Value end})
-CombatTab:CreateSlider({Name = "Classic Hover Height", Range = {0, 30}, Increment = 1, CurrentValue = 4, Flag = "MCE_HoverHeight", Callback = function(Value) HOVER_HEIGHT = Value end})
-CombatTab:CreateToggle({Name = "Auto Cast Skills (Master Toggle)", CurrentValue = false, Flag = "MCE_AutoSkills", Callback = function(Value) autoSkillsEnabled = Value end})
+CombatTab:CreateToggle({
+   Name = "Auto-Equip Weapon",
+   CurrentValue = true,
+   Flag = "MCE_AutoEquip",
+   Callback = function(Value) autoEquipEnabled = Value end,
+})
+
+CombatTab:CreateSlider({
+   Name = "Auto Attack Detection Range",
+   Range = {10, 5000}, 
+   Increment = 50,
+   CurrentValue = 300,
+   Flag = "MCE_AttackRange",
+   Callback = function(Value) autoAttackRange = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Exact Part Alignment (No Hitbox)",
+   CurrentValue = false,
+   Flag = "MCE_ExactAlignment",
+   Callback = function(Value) exactPartAlignment = Value end,
+})
+
+CombatTab:CreateSlider({
+   Name = "Attack Proximity Distance",
+   Range = {1, 15},
+   Increment = 1,
+   CurrentValue = 3,
+   Flag = "MCE_ProximityDist",
+   Callback = function(Value) attackDistance = Value end,
+})
+
+CombatTab:CreateSlider({
+   Name = "Classic Hover Height",
+   Range = {0, 30},
+   Increment = 1,
+   CurrentValue = 4,
+   Flag = "MCE_HoverHeight",
+   Callback = function(Value) HOVER_HEIGHT = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Auto Cast Skills (Master Toggle)",
+   CurrentValue = false,
+   Flag = "MCE_AutoSkills",
+   Callback = function(Value) autoSkillsEnabled = Value end,
+})
 
 CombatTab:CreateSection("Individual Skill Binds")
-CombatTab:CreateToggle({Name = "Cast [F] Skill", CurrentValue = false, Flag = "MCE_CastF", Callback = function(Value) castF = Value end})
-CombatTab:CreateToggle({Name = "Cast [R] Skill", CurrentValue = false, Flag = "MCE_CastR", Callback = function(Value) castR = Value end})
-CombatTab:CreateToggle({Name = "Cast [C] Skill", CurrentValue = false, Flag = "MCE_CastC", Callback = function(Value) castC = Value end})
-CombatTab:CreateToggle({Name = "Cast [G] Skill", CurrentValue = false, Flag = "MCE_CastG", Callback = function(Value) castG = Value end})
-CombatTab:CreateToggle({Name = "Cast [V] Skill", CurrentValue = false, Flag = "MCE_CastV", Callback = function(Value) castV = Value end})
+
+CombatTab:CreateToggle({
+   Name = "Cast [F] Skill",
+   CurrentValue = false,
+   Flag = "MCE_CastF",
+   Callback = function(Value) castF = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Cast [R] Skill",
+   CurrentValue = false,
+   Flag = "MCE_CastR",
+   Callback = function(Value) castR = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Cast [C] Skill",
+   CurrentValue = false,
+   Flag = "MCE_CastC",
+   Callback = function(Value) castC = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Cast [G] Skill",
+   CurrentValue = false,
+   Flag = "MCE_CastG",
+   Callback = function(Value) castG = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Cast [V] Skill",
+   CurrentValue = false,
+   Flag = "MCE_CastV",
+   Callback = function(Value) castV = Value end,
+})
+
 
 -- [UTILITIES & HP TAB]
-UtilityTab:CreateToggle({Name = "Auto Collect Drops", CurrentValue = false, Flag = "MCE_AutoCollectDrops", Callback = function(Value) autoCollectDrops = Value end})
-UtilityTab:CreateToggle({Name = "Auto Open Chests", CurrentValue = false, Flag = "MCE_AutoOpenChests", Callback = function(Value) autoOpenChests = Value end})
-UtilityTab:CreateToggle({Name = "Auto-Potion (Below 50% HP)", CurrentValue = true, Flag = "MCE_AutoPotion", Callback = function(Value) autoPotionEnabled = Value end})
+UtilityTab:CreateToggle({
+   Name = "Auto Collect Drops",
+   CurrentValue = false,
+   Flag = "MCE_AutoCollectDrops",
+   Callback = function(Value) autoCollectDrops = Value end,
+})
+
+UtilityTab:CreateToggle({
+   Name = "Auto Open Chests",
+   CurrentValue = false,
+   Flag = "MCE_AutoOpenChests",
+   Callback = function(Value) autoOpenChests = Value end,
+})
+
+UtilityTab:CreateToggle({
+   Name = "Auto-Potion (Below 50% HP)",
+   CurrentValue = true,
+   Flag = "MCE_AutoPotion",
+   Callback = function(Value) autoPotionEnabled = Value end,
+})
+
 UtilityTab:CreateToggle({
    Name = "Auto Safe Spot (Bypass Disconnect)",
    CurrentValue = false,
@@ -151,7 +255,16 @@ UtilityTab:CreateToggle({
        end
    end,
 })
-UtilityTab:CreateSlider({Name = "Safe Spot Trigger HP %", Range = {10, 50}, Increment = 5, CurrentValue = 25, Flag = "MCE_SafeSpotHP", Callback = function(Value) safeHpPercent = Value end})
+
+UtilityTab:CreateSlider({
+   Name = "Safe Spot Trigger HP %",
+   Range = {10, 50},
+   Increment = 5,
+   CurrentValue = 25,
+   Flag = "MCE_SafeSpotHP",
+   Callback = function(Value) safeHpPercent = Value end,
+})
+
 
 -- [VISUALS & DUNGEONS TAB]
 VisualsTab:CreateToggle({
@@ -167,13 +280,41 @@ VisualsTab:CreateToggle({
        end
    end,
 })
-VisualsTab:CreateToggle({Name = "Auto Start Dungeon", CurrentValue = true, Flag = "MCE_AutoDungeon", Callback = function(Value) autoDungeonEnabled = Value end})
-VisualsTab:CreateToggle({Name = "Auto Retry Dungeon", CurrentValue = false, Flag = "MCE_AutoRetry", Callback = function(Value) autoRetryEnabled = Value end})
-VisualsTab:CreateToggle({Name = "Auto Demon Castle (Next Floor)", CurrentValue = false, Flag = "MCE_AutoDemonCastle", Callback = function(Value) autoDemonCastleEnabled = Value end})
-VisualsTab:CreateSlider({Name = "Auto Dungeon Trigger Range", Range = {10, 200}, Increment = 10, CurrentValue = 50, Flag = "MCE_DungeonRange", Callback = function(Value) autoDungeonRange = Value end})
+
+VisualsTab:CreateToggle({
+   Name = "Auto Start Dungeon", 
+   CurrentValue = true,
+   Flag = "MCE_AutoDungeon",
+   Callback = function(Value) autoDungeonEnabled = Value end,
+})
+
+VisualsTab:CreateToggle({
+   Name = "Auto Retry Dungeon", 
+   CurrentValue = false,
+   Flag = "MCE_AutoRetry",
+   Callback = function(Value) autoRetryEnabled = Value end,
+})
+
+VisualsTab:CreateToggle({
+   Name = "Auto Demon Castle (Next Floor)", 
+   CurrentValue = false,
+   Flag = "MCE_AutoDemonCastle",
+   Callback = function(Value) autoDemonCastleEnabled = Value end,
+})
+
+VisualsTab:CreateSlider({
+   Name = "Auto Dungeon Trigger Range",
+   Range = {10, 200},
+   Increment = 10,
+   CurrentValue = 50,
+   Flag = "MCE_DungeonRange",
+   Callback = function(Value) autoDungeonRange = Value end,
+})
+
 
 -- [CONFIGURATION TAB]
 ConfigTab:CreateSection("Movement Settings")
+
 ConfigTab:CreateDropdown({
    Name = "Movement Method",
    Options = {"Teleport", "Tween"},
@@ -184,260 +325,54 @@ ConfigTab:CreateDropdown({
        updateNoclipState()
    end,
 })
-ConfigTab:CreateSlider({Name = "Tween Speed", Range = {25, 500}, Increment = 25, CurrentValue = 150, Flag = "MCE_TweenSpeed", Callback = function(Value) tweenSpeed = Value end})
-ConfigTab:CreateDropdown({Name = "Positioning Mode", Options = {"Above", "Circle"}, CurrentOption = {"Above"}, Flag = "MCE_PositioningMode", Callback = function(Option) positioningMode = type(Option) == "table" and Option[1] or Option end})
+
+ConfigTab:CreateSlider({
+   Name = "Tween Speed",
+   Range = {25, 500},
+   Increment = 25,
+   CurrentValue = 150,
+   Flag = "MCE_TweenSpeed",
+   Callback = function(Value) tweenSpeed = Value end,
+})
+
+ConfigTab:CreateDropdown({
+   Name = "Positioning Mode",
+   Options = {"Above", "Circle"},
+   CurrentOption = {"Above"},
+   Flag = "MCE_PositioningMode",
+   Callback = function(Option) 
+       positioningMode = type(Option) == "table" and Option[1] or Option 
+   end,
+})
 
 ConfigTab:CreateSection("Profile Cache Management")
+
 ConfigTab:CreateButton({
    Name = "Reset Configuration",
    Callback = function()
        if delfile then
-           pcall(function() delfile("ModularCombatEngine/Config.json") end)
-           Rayfield:Notify({Title = "Config Purged", Content = "JSON cache cleared! Rejoin or re-run script.", Duration = 5})
+           pcall(function()
+               delfile("ModularCombatEngine/Config.json")
+           end)
+           Rayfield:Notify({
+               Title = "Config Purged",
+               Content = "JSON cache cleared! Re-execute script or rejoin to load default values.",
+               Duration = 5,
+               Image = 4483362458,
+           })
+       else
+           Rayfield:Notify({
+               Title = "Execution Error",
+               Content = "Your active exploit setup does not support 'delfile' file management.",
+               Duration = 4,
+               Image = 4483362458,
+           })
        end
    end,
 })
 
 
--- // DECOUPLED STATE MACHINE: DEMON CASTLE PROGRESSION // --
-
-local function validatePortal(portalModel)
-    local isValid = false
-    pcall(function()
-        if portalModel and portalModel.Parent and player.Character then
-            local root = player.Character:FindFirstChild("HumanoidRootPart")
-            local destPart = portalModel:FindFirstChild("ProximityPart") or portalModel:FindFirstChild("Gate") or portalModel:FindFirstChildOfClass("BasePart")
-            if root and destPart then
-                isValid = true
-            end
-        end
-    end)
-    return isValid
-end
-
-local function getPortalInteractivePart(portalModel)
-    local targetPart = nil
-    pcall(function()
-        targetPart = portalModel:FindFirstChild("ProximityPart") or portalModel:FindFirstChild("Gate") or portalModel:FindFirstChildOfClass("BasePart")
-    end)
-    return targetPart
-end
-
-local function moveToPortalHover(portalModel, destinationPart)
-    local success = false
-    pcall(function()
-        local character = player.Character
-        local root = character and character:FindFirstChild("HumanoidRootPart")
-        if root and destinationPart then
-            -- STATE 4: Compute absolute safety vector directly 9 studs above the target interaction object
-            local targetPosition = destinationPart.Position + Vector3.new(0, 9, 0)
-            local distance = (root.Position - targetPosition).Magnitude
-            local calculatedTime = math.clamp(distance / tweenSpeed, 0.4, 3.0)
-            
-            local tweenInfo = TweenInfo.new(calculatedTime, Enum.EasingStyle.Linear)
-            local tween = TweenService:Create(root, tweenInfo, {CFrame = CFrame.new(targetPosition, destinationPart.Position)})
-            
-            tween:Play()
-            tween.Completed:Wait()
-            
-            -- Ensure mechanical dampening finishes
-            root.AssemblyLinearVelocity = Vector3.new(0,0,0)
-            success = true
-        end
-    end)
-    return success
-end
-
-local function startFacingLock(destinationPart)
-    pcall(function()
-        if portalFacingConnection then portalFacingConnection:Disconnect() end
-        -- STATE 5: Continuously maintain orientation look-at vector targeting the portal mesh
-        portalFacingConnection = RunService.Heartbeat:Connect(function()
-            pcall(function()
-                local character = player.Character
-                local root = character and character:FindFirstChild("HumanoidRootPart")
-                if root and destinationPart and destinationPart.Parent then
-                    root.CFrame = CFrame.lookAt(root.Position, destinationPart.Position)
-                end
-            end)
-        end)
-    end)
-end
-
-local function stopFacingLock()
-    if portalFacingConnection then
-        pcall(function() portalFacingConnection:Disconnect() end)
-        portalFacingConnection = nil
-    end
-end
-
-local function waitForGateUI()
-    local uiFound = false
-    local startTime = os.clock()
-    -- STATE 6: Clean event loop verifying matching client layer existence
-    while os.clock() - startTime < 5.0 do
-        pcall(function()
-            local gateGui = player.PlayerGui:FindFirstChild("Gate")
-            if gateGui and (gateGui.Enabled or (gateGui:FindFirstChild("Main") and gateGui.Main.Visible)) then
-                uiFound = true
-            end
-        end)
-        if uiFound then break end
-        task.wait(0.1)
-    end
-    return uiFound
-end
-
-local function waitForJoinButton()
-    local btnReady = false
-    local startTime = os.clock()
-    -- STATE 7: Non-blocking search verify target interactable button conditions
-    while os.clock() - startTime < 4.0 do
-        pcall(function()
-            local gateGui = player.PlayerGui:FindFirstChild("Gate")
-            local mainFrame = gateGui and gateGui:FindFirstChild("Main")
-            -- Scan elements dynamically to circumvent internal name mutations safely
-            local joinBtn = mainFrame and (mainFrame:FindFirstChild("Join") or mainFrame:FindFirstChild("Enter") or mainFrame:FindFirstChildOfClass("TextButton"))
-            if joinBtn and joinBtn.Visible then
-                btnReady = true
-            end
-        end)
-        if btnReady then break end
-        task.wait(0.1)
-    end
-    return btnReady
-end
-
-local function executePortalJoin(portalModel)
-    local fired = false
-    pcall(function()
-        -- STATE 8: Execute exact client remote event protocol instruction
-        queuePortalRemote:InvokeServer("ac8172bb-b04b-453a-9500-513449a0f30c")
-        fired = true
-    end)
-    
-    -- Mechanical Prompt Fallback Automation Layer
-    pcall(function()
-        task.wait(0.2)
-        local prompt = portalModel:FindFirstChildOfClass("ProximityPrompt") or portalModel:FindFirstChild("ProximityPrompt", true)
-        if prompt then
-            prompt.RequiresLineOfSight = false
-            prompt.MaxActivationDistance = 500
-            prompt.Enabled = true
-            if fireproximityprompt then
-                fireproximityprompt(prompt)
-            else
-                prompt:InputHoldBegin()
-                task.wait(0.2)
-                prompt:InputHoldEnd()
-            end
-        end
-    end)
-    return fired
-end
-
-local function verifyTeleport(initialPos)
-    local success = false
-    local startTime = os.clock()
-    -- STATE 9: Floor verification via coordinate metrics and object removal delta engine
-    while os.clock() - startTime < 6.0 do
-        pcall(function()
-            local character = player.Character
-            local root = character and character:FindFirstChild("HumanoidRootPart")
-            if root then
-                local deltaDist = (root.Position - initialPos).Magnitude
-                if deltaDist > 45 then
-                    success = true
-                end
-            end
-        end)
-        if success then break end
-        task.wait(0.2)
-    end
-    return success
-end
-
-local function processDemonCastleState(portalModel)
-    -- STATE 1 & 2: Structural protection and validation gating checks
-    if isProcessingPortal or not autoDemonCastleEnabled then return end
-    if not validatePortal(portalModel) then return end
-    
-    isProcessingPortal = true
-    local retryCount = 0
-    local maxRetries = 3
-    local wasAttackEnabled = autoAttackEnabled
-    
-    -- STATE 3: Safely cache and decouple physical combat engine configurations
-    autoAttackEnabled = false
-    
-    local destinationPart = getPortalInteractivePart(portalModel)
-    if not destinationPart then 
-        autoAttackEnabled = wasAttackEnabled
-        isProcessingPortal = false
-        return 
-    end
-    
-    local character = player.Character
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-    local initialPosition = root and root.Position or Vector3.new(0,0,0)
-    
-    startFacingLock(destinationPart)
-    
-    -- State Routine Retry Loop Controller Engine
-    while retryCount < maxRetries do
-        local runSuccess = false
-        
-        pcall(function()
-            -- Step A: Flight Movement Execution Phase
-            local moved = moveToPortalHover(portalModel, destinationPart)
-            if not moved then return end
-            
-            -- Step B: Wait for Verification Elements
-            local uiPresent = waitForGateUI()
-            -- If UI doesn't register natively immediately, process standard remote payload directly
-            
-            -- Step C: Queue Remote Target Execution Phase
-            local joined = executePortalJoin(portalModel)
-            if not joined then return end
-            
-            -- Step D: Verification Metrics Confirmation State
-            local teleported = verifyTeleport(initialPosition)
-            if teleported then
-                runSuccess = true
-            end
-        end)
-        
-        if runSuccess then
-            break
-        else
-            retryCount = retryCount + 1
-            task.wait(0.5) -- Cool down before recycling parameters
-        end
-    end
-    
-    -- STATE 10: Complete teardown, cleanup, and status restoration pipelines
-    stopFacingLock()
-    autoAttackEnabled = wasAttackEnabled
-    isProcessingPortal = false
-end
-
--- Hook completely event-driven runtime environment managers
-task.spawn(function()
-    workspace.ChildAdded:Connect(function(child)
-        if child.Name == "DemonPortalModel" then
-            processDemonCastleState(child)
-        end
-    end)
-    
-    local existingPortal = workspace:FindFirstChild("DemonPortalModel")
-    if existingPortal then
-        processDemonCastleState(existingPortal)
-    end
-end)
-
-
--- // PREVIOUS UNTOUCHED CORE TARGETING & COMBAT LOOPS // --
-
+-- // CORE TARGETING ENGINE // --
 local targetEnemy = nil
 
 local function isEnemy(model)
@@ -481,6 +416,10 @@ task.spawn(function()
     end
 end)
 
+
+-- // SYSTEM MODULES // --
+
+-- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE (Dynamic Overheads)
 RunService.Heartbeat:Connect(function(deltaTime)
     if not autoAttackEnabled then return end
 
@@ -493,9 +432,11 @@ RunService.Heartbeat:Connect(function(deltaTime)
         local enemyRoot = targetEnemy.HumanoidRootPart
         local targetPosition
         
+        -- Dynamic Safe Spot Vector Adjustments
         if safeSpotActive then
             targetPosition = enemyRoot.Position + Vector3.new(0.01, SAFE_HOVER_HEIGHT, 0)
         else
+            -- Normal Combat Flight Operations
             if positioningMode == "Above" then
                 targetPosition = enemyRoot.Position + Vector3.new(0.01, HOVER_HEIGHT, 0)
             elseif positioningMode == "Circle" then
@@ -507,6 +448,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
             end
         end
         
+        -- Translation Router (Forces smooth linear glide when Safe Spotting to prevent anti-cheat triggers)
         if movementMethod == "Teleport" and not safeSpotActive then
             root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
         else
@@ -523,12 +465,14 @@ RunService.Heartbeat:Connect(function(deltaTime)
                 root.CFrame = CFrame.lookAt(calculatedPosition, enemyRoot.Position)
             end
         end
+        
         root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
     else
         targetEnemy = nil
     end
 end)
 
+-- 2. COMBINED AUTO ATTACK MODULE (Stops during Safe Spot Recovery)
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
@@ -544,6 +488,7 @@ task.spawn(function()
     end
 end)
 
+-- 3. AUTO SKILLS SYSTEM (Stops during Safe Spot Recovery)
 local skillBinds = {
     {Key = Enum.KeyCode.F, GetEnabled = function() return castF end},
     {Key = Enum.KeyCode.R, GetEnabled = function() return castR end},
@@ -577,6 +522,7 @@ task.spawn(function()
     end
 end)
 
+-- 4. AUTO POTION MODULE
 task.spawn(function()
     while true do
         task.wait(0.3)
@@ -591,14 +537,17 @@ task.spawn(function()
     end
 end)
 
+-- 5. LOW HP AUTO SAFE SPOT CONTROLLER
 task.spawn(function()
     while true do
         task.wait(0.1)
         if safeSpotEnabled then
             local character = player.Character
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            
             if humanoid and humanoid.Health > 0 then
                 local hpPercent = (humanoid.Health / humanoid.MaxHealth) * 100
+                
                 if hpPercent <= safeHpPercent and not safeSpotActive then
                     safeSpotActive = true 
                     updateNoclipState()
@@ -616,6 +565,7 @@ task.spawn(function()
     end
 end)
 
+-- 6. AUTO EQUIP MODULE
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -632,14 +582,17 @@ task.spawn(function()
     end
 end)
 
+-- 7. AUTO-DUNGEON PROGRESSION MODULE (Gate & Lobby Automation)
 task.spawn(function()
     while true do
         task.wait(1.5)
+        
         if autoDungeonEnabled then
             local mainGui = player.PlayerGui:FindFirstChild("Main")
             local startBtn = mainGui and mainGui:FindFirstChild("StartBtn")
             local character = player.Character
             local root = character and character:FindFirstChild("HumanoidRootPart")
+            
             if root then
                 local closeLandmark = false
                 for _, element in ipairs(workspace:GetChildren()) do
@@ -651,9 +604,11 @@ task.spawn(function()
                     end
                 end
             end
+            
             if startBtn and startBtn.Visible then
                 task.spawn(pcall, function() startDungeonRemote:InvokeServer() end)
             end
+            
             local gateGui = player.PlayerGui:FindFirstChild("Gate")
             if gateGui and (gateGui.Enabled or (gateGui:FindFirstChild("Main") and gateGui.Main.Visible)) then
                 task.spawn(pcall, function() enterGateRemote:InvokeServer() end)
@@ -662,26 +617,55 @@ task.spawn(function()
     end
 end)
 
+-- 8. INSTANT EVENT-BASED AUTO RETRY & AUTO DEMON CASTLE MODULE (v22 Corrected Sequence)
 task.spawn(function()
     local connection
     local function connectListener()
         if connection then connection:Disconnect() end
         connection = fullDungeonRemote.OnClientEvent:Connect(function(action, ...)
-            if action ~= "PortalSpawned" and autoRetryEnabled then
-                task.wait(1.5) 
-                task.spawn(pcall, function()
-                    retryDungeonRemote:InvokeServer("retry")
-                end)
+            
+            if action == "PortalSpawned" then
+                if autoDemonCastleEnabled then
+                    task.spawn(pcall, function()
+                        -- 1. Match coordinates instantly to prevent client spatial lag
+                        local character = player.Character
+                        local root = character and character:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            root.CFrame = CFrame.new(20000, 5, 20000)
+                        end
+                        task.wait(0.05)
+                        
+                        -- 2. Trigger localized dungeon coordinate teleportation sequence
+                        safeFireSignal(teleportIntoDungeon.OnClientEvent, {
+                            Position = Vector3.new(20000, 0, 20000)
+                        })
+                        task.wait(0.05)
+                        
+                        -- 3. Confirm teleportation state to finalize loading phase
+                        safeFireSignal(teleportedSignal.OnClientEvent, "DemonCastle", "B", nil, {})
+                    end)
+                end
+            else
+                -- Fallback to standard quick portal retry logic for alternate end scenes
+                if autoRetryEnabled then
+                    task.wait(1.5) 
+                    task.spawn(pcall, function()
+                        retryDungeonRemote:InvokeServer("retry")
+                    end)
+                end
             end
         end)
     end
+    
     connectListener()
+    
     player.CharacterAdded:Connect(function()
         task.wait(1)
         connectListener()
     end)
 end)
 
+-- 9. EVENT-DRIVEN AUTO COLLECT DROPS MODULE
 task.spawn(function()
     local dropConnection
     local function connectDropListener()
@@ -698,13 +682,16 @@ task.spawn(function()
             end
         end)
     end
+    
     connectDropListener()
+    
     player.CharacterAdded:Connect(function()
         task.wait(1)
         connectDropListener()
     end)
 end)
 
+-- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE
 task.spawn(function()
     local chestConnection
     local function connectChestListener()
@@ -713,6 +700,8 @@ task.spawn(function()
             if autoOpenChests then
                 local args = {...}
                 local chestUUID = nil
+                
+                -- Dynamic payload mapping
                 for _, arg in ipairs(args) do
                     if type(arg) == "string" and arg:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
                         chestUUID = arg
@@ -722,6 +711,8 @@ task.spawn(function()
                         break
                     end
                 end
+                
+                -- Positional configuration backup check
                 if not chestUUID then
                     if typeof(args[2]) == "CFrame" and type(args[3]) == "string" then
                         chestUUID = args[3]
@@ -729,6 +720,7 @@ task.spawn(function()
                         chestUUID = args[2]
                     end
                 end
+                
                 if chestUUID then
                     task.spawn(pcall, function()
                         openChestRemote:InvokeServer(chestUUID)
@@ -737,13 +729,16 @@ task.spawn(function()
             end
         end)
     end
+    
     connectChestListener()
+    
     player.CharacterAdded:Connect(function()
         task.wait(1)
         connectChestListener()
     end)
 end)
 
+-- 11. ESP MODULE
 task.spawn(function()
     while true do
         task.wait(0.5)
