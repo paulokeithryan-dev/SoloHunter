@@ -15,7 +15,7 @@ local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitFor
 local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
 -- // SYSTEM UPGRADE REMOTES (v18 & v19) // --
-local fullDungeonRemote = ReplicatedStorage:WaitForChild("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("FullDungeonRemote")
+local fullDungeonRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("FullDungeonRemote")
 local dropCreatedRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RE"):WaitForChild("DropCreatedSignal")
 local collectDropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 
