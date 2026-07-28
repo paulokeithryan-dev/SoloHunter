@@ -12,16 +12,20 @@ local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
 local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
-local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
--- // SYSTEM UPGRADE REMOTES (v18 & v19) // --
+-- // PORTAL & TELEPORT REMOTES // --
+local teleportIntoDungeon = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RE"):WaitForChild("TeleportIntoDungeon")
+local teleportedSignal = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RE"):WaitForChild("TeleportedSignal")
+
+-- // SYSTEM UPGRADE REMOTES // --
 local fullDungeonRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("FullDungeonRemote")
 local dropCreatedRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RE"):WaitForChild("DropCreatedSignal")
 local collectDropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 
--- v19 Chest Remotes
+-- Chest Remotes
 local spawnChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("BossDropsService"):WaitForChild("RE"):WaitForChild("SpawnChest")
 local openChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("BossDropsService"):WaitForChild("RF"):WaitForChild("OpenChest")
+local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
 -- // INDEPENDENT CONFIG VARIABLES // --
 local autoAttackEnabled = false
@@ -49,13 +53,14 @@ local safeHpPercent = 25
 local safeSpotActive = false 
 local SAFE_HOVER_HEIGHT = 100 
 
--- // AUTO COLLECT & OPEN CONFIG (v18 & v19) // --
+-- // AUTO COLLECT & OPEN CONFIG // --
 local autoCollectDrops = false
 local autoOpenChests = false
 
 local espEnabled = false
 local autoDungeonEnabled = true  
 local autoRetryEnabled = false   
+local autoDemonCastleEnabled = false
 local autoDungeonRange = 50
 
 -- // MOVEMENT CONFIGS // --
@@ -63,6 +68,18 @@ local movementMethod = "Teleport"
 local tweenSpeed = 150
 local positioningMode = "Above"   
 local circleAngle = 0
+
+-- // FIRESIGNAL WRAPPER (Executor Compatibility Guard) // --
+local function safeFireSignal(event, ...)
+    if firesignal then
+        local success, err = pcall(firesignal, event, ...)
+        if not success then
+            warn("MCE Engine: Failed to fire signal - " .. tostring(err))
+        end
+    else
+        warn("MCE Engine: Current executor does not support 'firesignal'.")
+    end
+end
 
 -- // NOCLIP STATE ENGINE // --
 local noclipConnection
@@ -91,9 +108,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v19",
+   Name = "Modular Combat Engine v22",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Network-Based Loot Loops Engaged",
+   LoadingSubtitle = "Demon Castle Sequence Corrected",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -276,6 +293,13 @@ VisualsTab:CreateToggle({
    CurrentValue = false,
    Flag = "MCE_AutoRetry",
    Callback = function(Value) autoRetryEnabled = Value end,
+})
+
+VisualsTab:CreateToggle({
+   Name = "Auto Demon Castle (Next Floor)", 
+   CurrentValue = false,
+   Flag = "MCE_AutoDemonCastle",
+   Callback = function(Value) autoDemonCastleEnabled = Value end,
 })
 
 VisualsTab:CreateSlider({
@@ -593,17 +617,42 @@ task.spawn(function()
     end
 end)
 
--- 8. INSTANT EVENT-BASED AUTO RETRY MODULE
+-- 8. INSTANT EVENT-BASED AUTO RETRY & AUTO DEMON CASTLE MODULE (v22 Corrected Sequence)
 task.spawn(function()
     local connection
     local function connectListener()
         if connection then connection:Disconnect() end
         connection = fullDungeonRemote.OnClientEvent:Connect(function(action, ...)
-            if autoRetryEnabled then
-                task.wait(1.5) 
-                task.spawn(pcall, function()
-                    retryDungeonRemote:InvokeServer("retry")
-                end)
+            
+            if action == "PortalSpawned" then
+                if autoDemonCastleEnabled then
+                    task.spawn(pcall, function()
+                        -- 1. Match coordinates instantly to prevent client spatial lag
+                        local character = player.Character
+                        local root = character and character:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            root.CFrame = CFrame.new(20000, 5, 20000)
+                        end
+                        task.wait(0.05)
+                        
+                        -- 2. Trigger localized dungeon coordinate teleportation sequence
+                        safeFireSignal(teleportIntoDungeon.OnClientEvent, {
+                            Position = Vector3.new(20000, 0, 20000)
+                        })
+                        task.wait(0.05)
+                        
+                        -- 3. Confirm teleportation state to finalize loading phase
+                        safeFireSignal(teleportedSignal.OnClientEvent, "DemonCastle", "B", nil, {})
+                    end)
+                end
+            else
+                -- Fallback to standard quick portal retry logic for alternate end scenes
+                if autoRetryEnabled then
+                    task.wait(1.5) 
+                    task.spawn(pcall, function()
+                        retryDungeonRemote:InvokeServer("retry")
+                    end)
+                end
             end
         end)
     end
@@ -642,7 +691,7 @@ task.spawn(function()
     end)
 end)
 
--- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE (v19 Upgrade)
+-- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE
 task.spawn(function()
     local chestConnection
     local function connectChestListener()
@@ -652,7 +701,7 @@ task.spawn(function()
                 local args = {...}
                 local chestUUID = nil
                 
-                -- Dynamic payload mapping for extreme stability
+                -- Dynamic payload mapping
                 for _, arg in ipairs(args) do
                     if type(arg) == "string" and arg:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
                         chestUUID = arg
@@ -673,7 +722,6 @@ task.spawn(function()
                 end
                 
                 if chestUUID then
-                    -- Instant, latency-free remote execution
                     task.spawn(pcall, function()
                         openChestRemote:InvokeServer(chestUUID)
                     end)
