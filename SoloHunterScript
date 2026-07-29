@@ -7,6 +7,27 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 
+-- // ANTI-CHEAT NEUTRALIZER MODULE // --
+task.spawn(function()
+    local acNames = {"anticheat", "ac", "detector", "physicscheck", "cheat", "validation", "security", "exploit"}
+    local function disableAC(v)
+        if v:IsA("LocalScript") and v ~= script then
+            for _, name in ipairs(acNames) do
+                if v.Name:lower():find(name) then
+                    v.Disabled = true
+                    pcall(function() v:Destroy() end)
+                    warn("MCE Engine: Bypassed active client security script: " .. v.Name)
+                end
+            end
+        end
+    end
+    
+    for _, v in ipairs(player.PlayerScripts:GetDescendants()) do disableAC(v) end
+    if player.Character then
+        for _, v in ipairs(player.Character:GetDescendants()) do disableAC(v) end
+    end
+end)
+
 -- // EXPLOIT REMOTES // --
 local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
 local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
@@ -31,7 +52,7 @@ local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):Wait
 local autoAttackEnabled = false
 local autoAttackRange = 300     
 local autoEquipEnabled = true 
-local M1_SPEED = 0.1            
+local M1_SPEED = 0.12           
 
 local exactPartAlignment = false
 local attackDistance = 3
@@ -69,7 +90,7 @@ local tweenSpeed = 150
 local positioningMode = "Above"   
 local circleAngle = 0
 
--- // FIRESIGNAL WRAPPER (Executor Compatibility Guard) // --
+-- // FIRESIGNAL WRAPPER // --
 local function safeFireSignal(event, ...)
     if firesignal then
         local success, err = pcall(firesignal, event, ...)
@@ -108,9 +129,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v22",
+   Name = "Modular Combat Engine v22 (Protected)",
    LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Demon Castle Sequence Corrected",
+   LoadingSubtitle = "Bypasses & Protections Active",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -220,7 +241,6 @@ CombatTab:CreateToggle({
    Callback = function(Value) castV = Value end,
 })
 
-
 -- [UTILITIES & HP TAB]
 UtilityTab:CreateToggle({
    Name = "Auto Collect Drops",
@@ -264,7 +284,6 @@ UtilityTab:CreateSlider({
    Flag = "MCE_SafeSpotHP",
    Callback = function(Value) safeHpPercent = Value end,
 })
-
 
 -- [VISUALS & DUNGEONS TAB]
 VisualsTab:CreateToggle({
@@ -311,7 +330,6 @@ VisualsTab:CreateSlider({
    Callback = function(Value) autoDungeonRange = Value end,
 })
 
-
 -- [CONFIGURATION TAB]
 ConfigTab:CreateSection("Movement Settings")
 
@@ -356,21 +374,13 @@ ConfigTab:CreateButton({
            end)
            Rayfield:Notify({
                Title = "Config Purged",
-               Content = "JSON cache cleared! Re-execute script or rejoin to load default values.",
+               Content = "JSON cache cleared!",
                Duration = 5,
-               Image = 4483362458,
-           })
-       else
-           Rayfield:Notify({
-               Title = "Execution Error",
-               Content = "Your active exploit setup does not support 'delfile' file management.",
-               Duration = 4,
                Image = 4483362458,
            })
        end
    end,
 })
-
 
 -- // CORE TARGETING ENGINE // --
 local targetEnemy = nil
@@ -416,10 +426,9 @@ task.spawn(function()
     end
 end)
 
-
 -- // SYSTEM MODULES // --
 
--- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE (Upright Overhead Flight)
+-- 1. ANTI-PHYSICS MOVEMENT MODULE (Safe Flight Bypass)
 RunService.Heartbeat:Connect(function(deltaTime)
     if not autoAttackEnabled then return end
 
@@ -428,15 +437,18 @@ RunService.Heartbeat:Connect(function(deltaTime)
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     if not root or (humanoid and humanoid.Health <= 0) then return end
     
+    -- Bypass physics state checks
+    pcall(function()
+        humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+    end)
+    
     if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") and targetEnemy:FindFirstChildOfClass("Humanoid") and targetEnemy:FindFirstChildOfClass("Humanoid").Health > 0 then
         local enemyRoot = targetEnemy.HumanoidRootPart
         local targetPosition
         
-        -- Dynamic Safe Spot Vector Adjustments
         if safeSpotActive then
             targetPosition = enemyRoot.Position + Vector3.new(0.01, SAFE_HOVER_HEIGHT, 0)
         else
-            -- Normal Combat Flight Operations
             if positioningMode == "Above" then
                 targetPosition = enemyRoot.Position + Vector3.new(0.01, HOVER_HEIGHT, 0)
             elseif positioningMode == "Circle" then
@@ -448,9 +460,9 @@ RunService.Heartbeat:Connect(function(deltaTime)
             end
         end
         
-        -- Translation Router (Forces level, upright rotation toward the target)
+        local lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
+        
         if movementMethod == "Teleport" and not safeSpotActive then
-            local lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
             root.CFrame = CFrame.lookAt(targetPosition, lookTarget)
         else
             local currentPos = root.Position
@@ -458,31 +470,41 @@ RunService.Heartbeat:Connect(function(deltaTime)
             local dist = travelVector.Magnitude
             
             if dist <= 1.5 then
-                local lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
                 root.CFrame = CFrame.lookAt(targetPosition, lookTarget)
             else
                 local operationalSpeed = safeSpotActive and 200 or tweenSpeed
                 local glideStep = math.min(dist, operationalSpeed * deltaTime)
                 local calculatedPosition = currentPos + (travelVector.Unit * glideStep)
-                local lookTarget = Vector3.new(enemyRoot.Position.X, calculatedPosition.Y, enemyRoot.Position.Z)
-                root.CFrame = CFrame.lookAt(calculatedPosition, lookTarget)
+                local currentLook = Vector3.new(enemyRoot.Position.X, calculatedPosition.Y, enemyRoot.Position.Z)
+                root.CFrame = CFrame.lookAt(calculatedPosition, currentLook)
             end
         end
         
-        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        -- Damped soft velocity reset to prevent Physics Anti-Cheat Kick
+        root.AssemblyLinearVelocity = Vector3.new(0, 0.001, 0)
     else
         targetEnemy = nil
     end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE (Stops during Safe Spot Recovery)
+-- 2. COMBINED AUTO ATTACK MODULE (Remote Rate-Limit Protected)
+local lastRemoteCall = 0
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
         if autoAttackEnabled and targetEnemy and not safeSpotActive then
             local character = player.Character
             if character and character:FindFirstChildOfClass("Tool") then
-                task.spawn(pcall, function() useWeaponRemote:InvokeServer() end)
+                
+                -- Rate Limit Guard: Only call InvokeServer max once every 0.25 seconds
+                if tick() - lastRemoteCall >= 0.25 then
+                    lastRemoteCall = tick()
+                    task.spawn(function()
+                        pcall(function() useWeaponRemote:InvokeServer() end)
+                    end)
+                end
+                
+                -- Input emulation
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
                 task.wait(0.01)
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
@@ -491,7 +513,7 @@ task.spawn(function()
     end
 end)
 
--- 3. AUTO SKILLS SYSTEM (Stops during Safe Spot Recovery)
+-- 3. AUTO SKILLS SYSTEM
 local skillBinds = {
     {Key = Enum.KeyCode.F, GetEnabled = function() return castF end},
     {Key = Enum.KeyCode.R, GetEnabled = function() return castR end},
@@ -528,7 +550,7 @@ end)
 -- 4. AUTO POTION MODULE
 task.spawn(function()
     while true do
-        task.wait(0.3)
+        task.wait(0.4)
         local character = player.Character
         local humanoid = character and character:FindFirstChildOfClass("Humanoid")
         if autoPotionEnabled and humanoid and humanoid.Health > 0 then
@@ -585,28 +607,13 @@ task.spawn(function()
     end
 end)
 
--- 7. AUTO-DUNGEON PROGRESSION MODULE (Gate & Lobby Automation)
+-- 7. AUTO-DUNGEON PROGRESSION MODULE
 task.spawn(function()
     while true do
         task.wait(1.5)
-        
         if autoDungeonEnabled then
             local mainGui = player.PlayerGui:FindFirstChild("Main")
             local startBtn = mainGui and mainGui:FindFirstChild("StartBtn")
-            local character = player.Character
-            local root = character and character:FindFirstChild("HumanoidRootPart")
-            
-            if root then
-                local closeLandmark = false
-                for _, element in ipairs(workspace:GetChildren()) do
-                    if (element.Name:lower():find("gate") or element.Name:lower():find("dungeon")) and element:IsA("BasePart") then
-                        if (root.Position - element.Position).Magnitude <= autoDungeonRange then
-                            closeLandmark = true
-                            break
-                        end
-                    end
-                end
-            end
             
             if startBtn and startBtn.Visible then
                 task.spawn(pcall, function() startDungeonRemote:InvokeServer() end)
@@ -620,36 +627,24 @@ task.spawn(function()
     end
 end)
 
--- 8. INSTANT EVENT-BASED AUTO RETRY & AUTO DEMON CASTLE MODULE (v22 Corrected Sequence)
+-- 8. PROTECTED AUTO RETRY & DEMON CASTLE MODULE
 task.spawn(function()
     local connection
     local function connectListener()
         if connection then connection:Disconnect() end
         connection = fullDungeonRemote.OnClientEvent:Connect(function(action, ...)
-            
             if action == "PortalSpawned" then
                 if autoDemonCastleEnabled then
                     task.spawn(pcall, function()
-                        -- 1. Match coordinates instantly to prevent client spatial lag
-                        local character = player.Character
-                        local root = character and character:FindFirstChild("HumanoidRootPart")
-                        if root then
-                            root.CFrame = CFrame.new(20000, 5, 20000)
-                        end
-                        task.wait(0.05)
-                        
-                        -- 2. Trigger localized dungeon coordinate teleportation sequence
+                        task.wait(0.1)
                         safeFireSignal(teleportIntoDungeon.OnClientEvent, {
                             Position = Vector3.new(20000, 0, 20000)
                         })
-                        task.wait(0.05)
-                        
-                        -- 3. Confirm teleportation state to finalize loading phase
+                        task.wait(0.1)
                         safeFireSignal(teleportedSignal.OnClientEvent, "DemonCastle", "B", nil, {})
                     end)
                 end
             else
-                -- Fallback to standard quick portal retry logic for alternate end scenes
                 if autoRetryEnabled then
                     task.wait(1.5) 
                     task.spawn(pcall, function()
@@ -661,7 +656,6 @@ task.spawn(function()
     end
     
     connectListener()
-    
     player.CharacterAdded:Connect(function()
         task.wait(1)
         connectListener()
@@ -687,7 +681,6 @@ task.spawn(function()
     end
     
     connectDropListener()
-    
     player.CharacterAdded:Connect(function()
         task.wait(1)
         connectDropListener()
@@ -704,7 +697,6 @@ task.spawn(function()
                 local args = {...}
                 local chestUUID = nil
                 
-                -- Dynamic payload mapping
                 for _, arg in ipairs(args) do
                     if type(arg) == "string" and arg:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
                         chestUUID = arg
@@ -712,15 +704,6 @@ task.spawn(function()
                     elseif type(arg) == "table" and arg.ChestUUID then
                         chestUUID = arg.ChestUUID
                         break
-                    end
-                end
-                
-                -- Positional configuration backup check
-                if not chestUUID then
-                    if typeof(args[2]) == "CFrame" and type(args[3]) == "string" then
-                        chestUUID = args[3]
-                    elseif typeof(args[1]) == "CFrame" and type(args[2]) == "string" then
-                        chestUUID = args[2]
                     end
                 end
                 
@@ -734,7 +717,6 @@ task.spawn(function()
     end
     
     connectChestListener()
-    
     player.CharacterAdded:Connect(function()
         task.wait(1)
         connectChestListener()
@@ -761,5 +743,4 @@ task.spawn(function()
     end
 end)
 
--- // LOAD PROFILE DEPENDENCIES // --
 Rayfield:LoadConfiguration()
