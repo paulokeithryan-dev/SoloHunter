@@ -419,7 +419,7 @@ end)
 
 -- // SYSTEM MODULES // --
 
--- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE (Dynamic Overheads)
+-- 1. ADVANCED MOVEMENT & ALIGNMENT MODULE (Upright Overhead Flight)
 RunService.Heartbeat:Connect(function(deltaTime)
     if not autoAttackEnabled then return end
 
@@ -448,21 +448,24 @@ RunService.Heartbeat:Connect(function(deltaTime)
             end
         end
         
-        -- Translation Router (Forces smooth linear glide when Safe Spotting to prevent anti-cheat triggers)
+        -- Translation Router (Forces level, upright rotation toward the target)
         if movementMethod == "Teleport" and not safeSpotActive then
-            root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
+            local lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
+            root.CFrame = CFrame.lookAt(targetPosition, lookTarget)
         else
             local currentPos = root.Position
             local travelVector = (targetPosition - currentPos)
             local dist = travelVector.Magnitude
             
             if dist <= 1.5 then
-                root.CFrame = CFrame.lookAt(targetPosition, enemyRoot.Position)
+                local lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
+                root.CFrame = CFrame.lookAt(targetPosition, lookTarget)
             else
                 local operationalSpeed = safeSpotActive and 200 or tweenSpeed
                 local glideStep = math.min(dist, operationalSpeed * deltaTime)
                 local calculatedPosition = currentPos + (travelVector.Unit * glideStep)
-                root.CFrame = CFrame.lookAt(calculatedPosition, enemyRoot.Position)
+                local lookTarget = Vector3.new(enemyRoot.Position.X, calculatedPosition.Y, enemyRoot.Position.Z)
+                root.CFrame = CFrame.lookAt(calculatedPosition, lookTarget)
             end
         end
         
