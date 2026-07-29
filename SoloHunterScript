@@ -129,9 +129,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v22 (Protected)",
-   LoadingTitle = "Applying Adjustments...",
-   LoadingSubtitle = "Bypasses & Protections Active",
+   Name = "Modular Combat Engine v23 (Master)",
+   LoadingTitle = "Applying Engine Optimizations...",
+   LoadingSubtitle = "Protected & Upright Flight Active",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -428,7 +428,7 @@ end)
 
 -- // SYSTEM MODULES // --
 
--- 1. ANTI-PHYSICS MOVEMENT MODULE (Safe Flight Bypass)
+-- 1. ADVANCED MOVEMENT MODULE (Upright Horizontal Flight + Anti-Physics Bypass)
 RunService.Heartbeat:Connect(function(deltaTime)
     if not autoAttackEnabled then return end
 
@@ -460,6 +460,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
             end
         end
         
+        -- Upright target alignment (Forces character to look horizontally without tilting down)
         local lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
         
         if movementMethod == "Teleport" and not safeSpotActive then
@@ -480,14 +481,14 @@ RunService.Heartbeat:Connect(function(deltaTime)
             end
         end
         
-        -- Damped soft velocity reset to prevent Physics Anti-Cheat Kick
+        -- Damped soft velocity reset to bypass Physics Anti-Cheat Kick
         root.AssemblyLinearVelocity = Vector3.new(0, 0.001, 0)
     else
         targetEnemy = nil
     end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE (Remote Rate-Limit Protected)
+-- 2. COMBINED AUTO ATTACK MODULE (Remote Rate-Limit Guarded)
 local lastRemoteCall = 0
 task.spawn(function()
     while true do
@@ -496,7 +497,7 @@ task.spawn(function()
             local character = player.Character
             if character and character:FindFirstChildOfClass("Tool") then
                 
-                -- Rate Limit Guard: Only call InvokeServer max once every 0.25 seconds
+                -- Rate Limit Guard: Only call InvokeServer maximum once every 0.25 seconds
                 if tick() - lastRemoteCall >= 0.25 then
                     lastRemoteCall = tick()
                     task.spawn(function()
@@ -504,7 +505,7 @@ task.spawn(function()
                     end)
                 end
                 
-                -- Input emulation
+                -- Input Emulation
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
                 task.wait(0.01)
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
@@ -627,7 +628,35 @@ task.spawn(function()
     end
 end)
 
--- 8. PROTECTED AUTO RETRY & DEMON CASTLE MODULE
+-- 8. UNIFIED AUTO RETRY & DEMON CASTLE MODULE
+local isRetryPending = false
+
+local function triggerAutoRetry(source)
+    if not autoRetryEnabled or isRetryPending then return end
+    isRetryPending = true
+    
+    task.spawn(function()
+        -- Buffer time for boss defeat animations/chest drops to finish
+        task.wait(2.5)
+        
+        local attempts = 0
+        while autoRetryEnabled and attempts < 3 do
+            attempts = attempts + 1
+            
+            local success = pcall(function()
+                return retryDungeonRemote:InvokeServer("retry")
+            end)
+            
+            if success then break end
+            task.wait(3)
+        end
+        
+        task.wait(5)
+        isRetryPending = false
+    end)
+end
+
+-- Observer 1: Remote Event Listener
 task.spawn(function()
     local connection
     local function connectListener()
@@ -645,21 +674,44 @@ task.spawn(function()
                     end)
                 end
             else
-                if autoRetryEnabled then
-                    task.wait(1.5) 
-                    task.spawn(pcall, function()
-                        retryDungeonRemote:InvokeServer("retry")
-                    end)
-                end
+                triggerAutoRetry("FullDungeonRemote")
             end
         end)
     end
     
     connectListener()
     player.CharacterAdded:Connect(function()
+        isRetryPending = false
         task.wait(1)
         connectListener()
     end)
+end)
+
+-- Observer 2: Boss Defeat Signal via Chest Spawn
+task.spawn(function()
+    spawnChestRemote.OnClientEvent:Connect(function(...)
+        triggerAutoRetry("BossChestSpawned")
+    end)
+end)
+
+-- Observer 3: UI Fallback Observer
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if autoRetryEnabled and not isRetryPending then
+            local pGui = player:FindFirstChild("PlayerGui")
+            if pGui then
+                local resultGui = pGui:FindFirstChild("DungeonResult") 
+                    or pGui:FindFirstChild("ClearGui") 
+                    or pGui:FindFirstChild("Result") 
+                    or pGui:FindFirstChild("VictoryGui")
+                
+                if resultGui and (resultGui.Enabled or (resultGui:FindFirstChild("Main") and resultGui.Main.Visible)) then
+                    triggerAutoRetry("UIRecognition")
+                end
+            end
+        end
+    end
 end)
 
 -- 9. EVENT-DRIVEN AUTO COLLECT DROPS MODULE
