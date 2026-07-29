@@ -10,43 +10,58 @@ local player = Players.LocalPlayer
 -- // ANTI-CHEAT NEUTRALIZER MODULE // --
 task.spawn(function()
     local acNames = {"anticheat", "ac", "detector", "physicscheck", "cheat", "validation", "security", "exploit"}
+    
     local function disableAC(v)
         if v:IsA("LocalScript") and v ~= script then
+            local scriptName = v.Name:lower()
             for _, name in ipairs(acNames) do
-                if v.Name:lower():find(name) then
-                    v.Disabled = true
+                if scriptName:find(name) then
+                    v.Enabled = false
                     pcall(function() v:Destroy() end)
                     warn("MCE Engine: Bypassed active client security script: " .. v.Name)
+                    break
                 end
             end
         end
     end
-    
-    for _, v in ipairs(player.PlayerScripts:GetDescendants()) do disableAC(v) end
-    if player.Character then
-        for _, v in ipairs(player.Character:GetDescendants()) do disableAC(v) end
+
+    local function monitorContainer(container)
+        if not container then return end
+        for _, v in ipairs(container:GetDescendants()) do disableAC(v) end
+        container.DescendantAdded:Connect(disableAC)
     end
+
+    task.spawn(function()
+        local playerScripts = player:WaitForChild("PlayerScripts", 10)
+        if playerScripts then monitorContainer(playerScripts) end
+    end)
+
+    if player.Character then monitorContainer(player.Character) end
+    player.CharacterAdded:Connect(monitorContainer)
 end)
 
 -- // EXPLOIT REMOTES // --
-local healRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
-local useWeaponRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
-local startDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
-local enterGateRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
+local remoteServices = ReplicatedStorage:WaitForChild("RemoteServices", 10)
+local remotesFolder = ReplicatedStorage:WaitForChild("Remotes", 10)
+
+local healRemote = remoteServices and remoteServices:WaitForChild("HealingService"):WaitForChild("RF"):WaitForChild("UseHeal")
+local useWeaponRemote = remoteServices and remoteServices:WaitForChild("CombatService"):WaitForChild("RF"):WaitForChild("UseWeapon")
+local startDungeonRemote = remoteServices and remoteServices:WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
+local enterGateRemote = remoteServices and remoteServices:WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 
 -- // PORTAL & TELEPORT REMOTES // --
-local teleportIntoDungeon = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RE"):WaitForChild("TeleportIntoDungeon")
-local teleportedSignal = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("PortalService"):WaitForChild("RE"):WaitForChild("TeleportedSignal")
+local teleportIntoDungeon = remoteServices and remoteServices:WaitForChild("DungeonService"):WaitForChild("RE"):WaitForChild("TeleportIntoDungeon")
+local teleportedSignal = remoteServices and remoteServices:WaitForChild("PortalService"):WaitForChild("RE"):WaitForChild("TeleportedSignal")
 
 -- // SYSTEM UPGRADE REMOTES // --
-local fullDungeonRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("FullDungeonRemote")
-local dropCreatedRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RE"):WaitForChild("DropCreatedSignal")
-local collectDropRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
+local fullDungeonRemote = remotesFolder and remotesFolder:WaitForChild("FullDungeonRemote")
+local dropCreatedRemote = remoteServices and remoteServices:WaitForChild("DropsService"):WaitForChild("RE"):WaitForChild("DropCreatedSignal")
+local collectDropRemote = remoteServices and remoteServices:WaitForChild("DropsService"):WaitForChild("RF"):WaitForChild("CollectDrop")
 
 -- Chest Remotes
-local spawnChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("BossDropsService"):WaitForChild("RE"):WaitForChild("SpawnChest")
-local openChestRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("BossDropsService"):WaitForChild("RF"):WaitForChild("OpenChest")
-local retryDungeonRemote = ReplicatedStorage:WaitForChild("RemoteServices"):WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
+local spawnChestRemote = remoteServices and remoteServices:WaitForChild("BossDropsService"):WaitForChild("RE"):WaitForChild("SpawnChest")
+local openChestRemote = remoteServices and remoteServices:WaitForChild("BossDropsService"):WaitForChild("RF"):WaitForChild("OpenChest")
+local retryDungeonRemote = remoteServices and remoteServices:WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
 
 -- // INDEPENDENT CONFIG VARIABLES // --
 local autoAttackEnabled = false
@@ -102,19 +117,38 @@ local function safeFireSignal(event, ...)
     end
 end
 
--- // NOCLIP STATE ENGINE // --
+-- // NOCLIP STATE ENGINE (OPTIMIZED) // --
+local characterParts = {}
+local function cacheCharacterParts(char)
+    characterParts = {}
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            table.insert(characterParts, part)
+        end
+    end
+    char.DescendantAdded:Connect(function(part)
+        if part:IsA("BasePart") then
+            table.insert(characterParts, part)
+        end
+    end)
+end
+
+if player.Character then cacheCharacterParts(player.Character) end
+player.CharacterAdded:Connect(cacheCharacterParts)
+
 local noclipConnection
 local function updateNoclipState()
     local shouldNoclip = (autoAttackEnabled or safeSpotActive) and (movementMethod == "Tween")
     if shouldNoclip then
         if not noclipConnection then
             noclipConnection = RunService.Stepped:Connect(function()
-                local character = player.Character
-                if character then
-                    for _, part in ipairs(character:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = false
-                        end
+                for i = #characterParts, 1, -1 do
+                    local part = characterParts[i]
+                    if part and part.Parent then
+                        part.CanCollide = false
+                    else
+                        table.remove(characterParts, i)
                     end
                 end
             end)
@@ -382,7 +416,7 @@ ConfigTab:CreateButton({
    end,
 })
 
--- // CORE TARGETING ENGINE // --
+-- // CORE TARGETING ENGINE (OPTIMIZED) // --
 local targetEnemy = nil
 
 local function isEnemy(model)
@@ -396,6 +430,16 @@ local function isEnemy(model)
     return false
 end
 
+local function checkTarget(obj, playerRoot, closestEnemy, shortestDistance)
+    if isEnemy(obj) then
+        local distance = (playerRoot.Position - obj.HumanoidRootPart.Position).Magnitude
+        if distance <= shortestDistance then
+            return obj, distance
+        end
+    end
+    return closestEnemy, shortestDistance
+end
+
 local function getClosestEnemy()
     local character = player.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
@@ -403,12 +447,11 @@ local function getClosestEnemy()
     local closestEnemy = nil
     local shortestDistance = autoAttackRange 
 
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if isEnemy(obj) then
-            local distance = (playerRoot.Position - obj.HumanoidRootPart.Position).Magnitude
-            if distance <= shortestDistance then
-                shortestDistance = distance
-                closestEnemy = obj
+    for _, obj in ipairs(workspace:GetChildren()) do
+        closestEnemy, shortestDistance = checkTarget(obj, playerRoot, closestEnemy, shortestDistance)
+        if obj:IsA("Folder") or obj:IsA("Model") then
+            for _, subObj in ipairs(obj:GetChildren()) do
+                closestEnemy, shortestDistance = checkTarget(subObj, playerRoot, closestEnemy, shortestDistance)
             end
         end
     end
@@ -428,7 +471,7 @@ end)
 
 -- // SYSTEM MODULES // --
 
--- 1. ADVANCED MOVEMENT MODULE (Upright Horizontal Flight + Anti-Physics Bypass)
+-- 1. ADVANCED MOVEMENT MODULE
 RunService.Heartbeat:Connect(function(deltaTime)
     if not autoAttackEnabled then return end
 
@@ -437,10 +480,9 @@ RunService.Heartbeat:Connect(function(deltaTime)
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     if not root or (humanoid and humanoid.Health <= 0) then return end
     
-    -- Bypass physics state checks
-    pcall(function()
-        humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-    end)
+    if humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+        pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Freefall) end)
+    end
     
     if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") and targetEnemy:FindFirstChildOfClass("Humanoid") and targetEnemy:FindFirstChildOfClass("Humanoid").Health > 0 then
         local enemyRoot = targetEnemy.HumanoidRootPart
@@ -460,7 +502,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
             end
         end
         
-        -- Upright target alignment (Forces character to look horizontally without tilting down)
         local lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
         
         if movementMethod == "Teleport" and not safeSpotActive then
@@ -481,14 +522,13 @@ RunService.Heartbeat:Connect(function(deltaTime)
             end
         end
         
-        -- Damped soft velocity reset to bypass Physics Anti-Cheat Kick
         root.AssemblyLinearVelocity = Vector3.new(0, 0.001, 0)
     else
         targetEnemy = nil
     end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE (Remote Rate-Limit Guarded)
+-- 2. COMBINED AUTO ATTACK MODULE
 local lastRemoteCall = 0
 task.spawn(function()
     while true do
@@ -497,15 +537,13 @@ task.spawn(function()
             local character = player.Character
             if character and character:FindFirstChildOfClass("Tool") then
                 
-                -- Rate Limit Guard: Only call InvokeServer maximum once every 0.25 seconds
-                if tick() - lastRemoteCall >= 0.25 then
-                    lastRemoteCall = tick()
+                if os.clock() - lastRemoteCall >= 0.25 then
+                    lastRemoteCall = os.clock()
                     task.spawn(function()
-                        pcall(function() useWeaponRemote:InvokeServer() end)
+                        if useWeaponRemote then pcall(function() useWeaponRemote:InvokeServer() end) end
                     end)
                 end
                 
-                -- Input Emulation
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
                 task.wait(0.01)
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
@@ -514,21 +552,22 @@ task.spawn(function()
     end
 end)
 
--- 3. AUTO SKILLS SYSTEM
+-- 3. AUTO SKILLS SYSTEM (NON-BLOCKING INDIVIDUAL COOLDOWNS)
 local skillBinds = {
-    {Key = Enum.KeyCode.F, GetEnabled = function() return castF end},
-    {Key = Enum.KeyCode.R, GetEnabled = function() return castR end},
-    {Key = Enum.KeyCode.C, GetEnabled = function() return castC end},
-    {Key = Enum.KeyCode.G, GetEnabled = function() return castG end},
-    {Key = Enum.KeyCode.V, GetEnabled = function() return castV end},
+    {Key = Enum.KeyCode.F, GetEnabled = function() return castF end, LastCast = 0},
+    {Key = Enum.KeyCode.R, GetEnabled = function() return castR end, LastCast = 0},
+    {Key = Enum.KeyCode.C, GetEnabled = function() return castC end, LastCast = 0},
+    {Key = Enum.KeyCode.G, GetEnabled = function() return castG end, LastCast = 0},
+    {Key = Enum.KeyCode.V, GetEnabled = function() return castV end, LastCast = 0},
 }
 
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(0.05)
         if autoSkillsEnabled and targetEnemy and not safeSpotActive then
+            local now = os.clock()
             for _, skillData in ipairs(skillBinds) do
-                if autoSkillsEnabled and targetEnemy and not safeSpotActive and skillData.GetEnabled() then
+                if skillData.GetEnabled() and (now - skillData.LastCast >= SKILL_INTERVAL) then
                     local character = player.Character
                     local root = character and character:FindFirstChild("HumanoidRootPart")
                     local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart")
@@ -536,10 +575,10 @@ task.spawn(function()
                     if root and enemyRoot and character:FindFirstChildOfClass("Tool") then
                         local currentDistance = (root.Position - enemyRoot.Position).Magnitude
                         if currentDistance <= (attackDistance + 8) then
+                            skillData.LastCast = now
                             VirtualInputManager:SendKeyEvent(true, skillData.Key, false, game)
-                            task.wait(0.05)
+                            task.wait(0.02)
                             VirtualInputManager:SendKeyEvent(false, skillData.Key, false, game)
-                            task.wait(SKILL_INTERVAL)
                         end
                     end
                 end
@@ -556,7 +595,7 @@ task.spawn(function()
         local humanoid = character and character:FindFirstChildOfClass("Humanoid")
         if autoPotionEnabled and humanoid and humanoid.Health > 0 then
             if (humanoid.Health / humanoid.MaxHealth) <= 0.5 then
-                pcall(function() healRemote:InvokeServer() end)
+                if healRemote then pcall(function() healRemote:InvokeServer() end) end
                 task.wait(1.5) 
             end
         end
@@ -613,15 +652,16 @@ task.spawn(function()
     while true do
         task.wait(1.5)
         if autoDungeonEnabled then
-            local mainGui = player.PlayerGui:FindFirstChild("Main")
+            local pGui = player:FindFirstChild("PlayerGui")
+            local mainGui = pGui and pGui:FindFirstChild("Main")
             local startBtn = mainGui and mainGui:FindFirstChild("StartBtn")
             
-            if startBtn and startBtn.Visible then
+            if startBtn and startBtn.Visible and startDungeonRemote then
                 task.spawn(pcall, function() startDungeonRemote:InvokeServer() end)
             end
             
-            local gateGui = player.PlayerGui:FindFirstChild("Gate")
-            if gateGui and (gateGui.Enabled or (gateGui:FindFirstChild("Main") and gateGui.Main.Visible)) then
+            local gateGui = pGui and pGui:FindFirstChild("Gate")
+            if gateGui and (gateGui.Enabled or (gateGui:FindFirstChild("Main") and gateGui.Main.Visible)) and enterGateRemote then
                 task.spawn(pcall, function() enterGateRemote:InvokeServer() end)
             end
         end
@@ -636,63 +676,51 @@ local function triggerAutoRetry(source)
     isRetryPending = true
     
     task.spawn(function()
-        -- Buffer time for boss defeat animations/chest drops to finish
         task.wait(2.5)
-        
         local attempts = 0
         while autoRetryEnabled and attempts < 3 do
             attempts = attempts + 1
-            
-            local success = pcall(function()
-                return retryDungeonRemote:InvokeServer("retry")
-            end)
-            
-            if success then break end
+            if retryDungeonRemote then
+                local success = pcall(function()
+                    return retryDungeonRemote:InvokeServer("retry")
+                end)
+                if success then break end
+            end
             task.wait(3)
         end
-        
         task.wait(5)
         isRetryPending = false
     end)
 end
 
 -- Observer 1: Remote Event Listener
-task.spawn(function()
-    local connection
-    local function connectListener()
-        if connection then connection:Disconnect() end
-        connection = fullDungeonRemote.OnClientEvent:Connect(function(action, ...)
-            if action == "PortalSpawned" then
-                if autoDemonCastleEnabled then
-                    task.spawn(pcall, function()
-                        task.wait(0.1)
-                        safeFireSignal(teleportIntoDungeon.OnClientEvent, {
-                            Position = Vector3.new(20000, 0, 20000)
-                        })
-                        task.wait(0.1)
+if fullDungeonRemote then
+    fullDungeonRemote.OnClientEvent:Connect(function(action, ...)
+        if action == "PortalSpawned" then
+            if autoDemonCastleEnabled then
+                task.spawn(pcall, function()
+                    task.wait(0.1)
+                    if teleportIntoDungeon then
+                        safeFireSignal(teleportIntoDungeon.OnClientEvent, { Position = Vector3.new(20000, 0, 20000) })
+                    end
+                    task.wait(0.1)
+                    if teleportedSignal then
                         safeFireSignal(teleportedSignal.OnClientEvent, "DemonCastle", "B", nil, {})
-                    end)
-                end
-            else
-                triggerAutoRetry("FullDungeonRemote")
+                    end
+                end)
             end
-        end)
-    end
-    
-    connectListener()
-    player.CharacterAdded:Connect(function()
-        isRetryPending = false
-        task.wait(1)
-        connectListener()
+        else
+            triggerAutoRetry("FullDungeonRemote")
+        end
     end)
-end)
+end
 
 -- Observer 2: Boss Defeat Signal via Chest Spawn
-task.spawn(function()
+if spawnChestRemote then
     spawnChestRemote.OnClientEvent:Connect(function(...)
         triggerAutoRetry("BossChestSpawned")
     end)
-end)
+end
 
 -- Observer 3: UI Fallback Observer
 task.spawn(function()
@@ -715,72 +743,52 @@ task.spawn(function()
 end)
 
 -- 9. EVENT-DRIVEN AUTO COLLECT DROPS MODULE
-task.spawn(function()
-    local dropConnection
-    local function connectDropListener()
-        if dropConnection then dropConnection:Disconnect() end
-        dropConnection = dropCreatedRemote.OnClientEvent:Connect(function(dropId, dropType, dropBase, position, dropData)
-            if autoCollectDrops then
-                local isGlobal = false
-                if type(dropData) == "table" and dropData.GlobalDrop ~= nil then
-                    isGlobal = dropData.GlobalDrop
-                end
-                task.spawn(pcall, function()
-                    collectDropRemote:InvokeServer(dropId, isGlobal)
-                end)
+if dropCreatedRemote then
+    dropCreatedRemote.OnClientEvent:Connect(function(dropId, dropType, dropBase, position, dropData)
+        if autoCollectDrops and collectDropRemote then
+            local isGlobal = false
+            if type(dropData) == "table" and dropData.GlobalDrop ~= nil then
+                isGlobal = dropData.GlobalDrop
             end
-        end)
-    end
-    
-    connectDropListener()
-    player.CharacterAdded:Connect(function()
-        task.wait(1)
-        connectDropListener()
+            task.spawn(pcall, function()
+                collectDropRemote:InvokeServer(dropId, isGlobal)
+            end)
+        end
     end)
-end)
+end
 
 -- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE
-task.spawn(function()
-    local chestConnection
-    local function connectChestListener()
-        if chestConnection then chestConnection:Disconnect() end
-        chestConnection = spawnChestRemote.OnClientEvent:Connect(function(...)
-            if autoOpenChests then
-                local args = {...}
-                local chestUUID = nil
-                
-                for _, arg in ipairs(args) do
-                    if type(arg) == "string" and arg:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
-                        chestUUID = arg
-                        break
-                    elseif type(arg) == "table" and arg.ChestUUID then
-                        chestUUID = arg.ChestUUID
-                        break
-                    end
-                end
-                
-                if chestUUID then
-                    task.spawn(pcall, function()
-                        openChestRemote:InvokeServer(chestUUID)
-                    end)
+if spawnChestRemote then
+    spawnChestRemote.OnClientEvent:Connect(function(...)
+        if autoOpenChests and openChestRemote then
+            local args = {...}
+            local chestUUID = nil
+            
+            for _, arg in ipairs(args) do
+                if type(arg) == "string" and arg:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
+                    chestUUID = arg
+                    break
+                elseif type(arg) == "table" and arg.ChestUUID then
+                    chestUUID = arg.ChestUUID
+                    break
                 end
             end
-        end)
-    end
-    
-    connectChestListener()
-    player.CharacterAdded:Connect(function()
-        task.wait(1)
-        connectChestListener()
+            
+            if chestUUID then
+                task.spawn(pcall, function()
+                    openChestRemote:InvokeServer(chestUUID)
+                end)
+            end
+        end
     end)
-end)
+end
 
--- 11. ESP MODULE
+-- 11. ESP MODULE (OPTIMIZED)
 task.spawn(function()
     while true do
         task.wait(0.5)
         if espEnabled then
-            for _, obj in pairs(workspace:GetDescendants()) do
+            for _, obj in ipairs(workspace:GetChildren()) do
                 if isEnemy(obj) and not obj:FindFirstChild("CombatEngineESP") then
                     local highlight = Instance.new("Highlight")
                     highlight.Name = "CombatEngineESP"
