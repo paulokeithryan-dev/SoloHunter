@@ -105,6 +105,9 @@ local tweenSpeed = 150
 local positioningMode = "Above"   
 local circleAngle = 0
 
+-- // STATE TRACKING // --
+local isDungeonCleared = false
+
 -- // FIRESIGNAL WRAPPER // --
 local function safeFireSignal(event, ...)
     if firesignal then
@@ -672,6 +675,8 @@ end)
 local isRetryPending = false
 
 local function triggerAutoRetry(source)
+    isDungeonCleared = true
+    
     if not autoRetryEnabled or isRetryPending then return end
     isRetryPending = true
     
@@ -684,7 +689,10 @@ local function triggerAutoRetry(source)
                 local success = pcall(function()
                     return retryDungeonRemote:InvokeServer("retry")
                 end)
-                if success then break end
+                if success then 
+                    isDungeonCleared = false
+                    break 
+                end
             end
             task.wait(3)
         end
@@ -726,7 +734,7 @@ end
 task.spawn(function()
     while true do
         task.wait(1)
-        if autoRetryEnabled and not isRetryPending then
+        if not isRetryPending then
             local pGui = player:FindFirstChild("PlayerGui")
             if pGui then
                 local resultGui = pGui:FindFirstChild("DungeonResult") 
@@ -740,6 +748,22 @@ task.spawn(function()
             end
         end
     end
+end)
+
+-- 8.5. POST-CLEAR AUTO CLICK ENGINE
+task.spawn(function()
+    while true do
+        task.wait(1.5)
+        if isDungeonCleared then
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        end
+    end
+end)
+
+player.CharacterAdded:Connect(function()
+    isDungeonCleared = false
 end)
 
 -- 9. EVENT-DRIVEN AUTO COLLECT DROPS MODULE
