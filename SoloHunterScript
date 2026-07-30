@@ -105,6 +105,12 @@ local autoRetryEnabled = false
 local autoDemonCastleEnabled = false
 local autoDungeonRange = 50
 
+-- // ROOM SEQUENCE & PROGRESSION SYSTEM CONFIG // --
+local autoRoomSequenceEnabled = false
+local orderedRooms = {}
+local currentRoomIndex = 1
+local isTransitioningRoom = false
+
 -- // MOVEMENT CONFIGS // --
 local movementMethod = "Teleport" 
 local tweenSpeed = 150
@@ -149,7 +155,7 @@ player.CharacterAdded:Connect(cacheCharacterParts)
 
 local noclipConnection
 local function updateNoclipState()
-    local shouldNoclip = (autoAttackEnabled or safeSpotActive) and (movementMethod == "Tween")
+    local shouldNoclip = (autoAttackEnabled or safeSpotActive or isTransitioningRoom) and (movementMethod == "Tween")
     if shouldNoclip then
         if not noclipConnection then
             noclipConnection = RunService.Stepped:Connect(function()
@@ -338,6 +344,17 @@ UtilityTab:CreateSlider({
 
 -- [VISUALS & DUNGEONS TAB]
 VisualsTab:CreateToggle({
+   Name = "Sequential Room Farming (Auto Gate & Wave)",
+   CurrentValue = false,
+   Flag = "MCE_RoomSequence",
+   Callback = function(Value) 
+       autoRoomSequenceEnabled = Value 
+       currentRoomIndex = 1
+       orderedRooms = {}
+   end,
+})
+
+VisualsTab:CreateToggle({
    Name = "Enemy ESP",
    CurrentValue = false,
    Flag = "MCE_EnemyESP",
@@ -462,6 +479,59 @@ local function isEnemy(model)
     return false
 end
 
+-- // SEQUENTIAL ROOM & GATE PROGRESSION ENGINE // --
+local function scanDungeonRooms()
+    orderedRooms = {}
+    local mapFolder = workspace:FindFirstChild("Map") or workspace:FindFirstChild("Dungeon") or workspace:FindFirstChild("Rooms")
+    if not mapFolder then return end
+
+    local tempRooms = {}
+    for _, obj in ipairs(mapFolder:GetChildren()) do
+        if obj:IsA("Model") then
+            table.insert(tempRooms, obj)
+        end
+    end
+
+    -- Sort rooms sequentially by enter/exit pivots or distance from origin
+    table.sort(tempRooms, function(a, b)
+        local numA = tonumber(a.Name:match("%d+"))
+        local numB = tonumber(b.Name:match("%d+"))
+        if numA and numB then
+            return numA < numB
+        end
+        
+        local posA = (a:FindFirstChild("EnterPivot") and a.EnterPivot.Position) or a:GetPivot().Position
+        local posB = (b:FindFirstChild("EnterPivot") and b.EnterPivot.Position) or b:GetPivot().Position
+        return posA.Magnitude < posB.Magnitude
+    end)
+
+    orderedRooms = tempRooms
+end
+
+local function isEnemyInRoom(enemy, roomModel)
+    if not roomModel or not enemy then return false end
+    local enemyRoot = enemy:FindFirstChild("HumanoidRootPart") or enemy.PrimaryPart
+    if not enemyRoot then return false end
+
+    -- 1. Direct child folder check
+    if enemy:IsDescendantOf(roomModel) then return true end
+
+    -- 2. Spatial boundary check around room pivots
+    local enterPivot = roomModel:FindFirstChild("EnterPivot")
+    local exitPivot = roomModel:FindFirstChild("ExitPivot")
+    local bounds = roomModel:FindFirstChild("Bounds") or roomModel.PrimaryPart
+
+    local checkPos = (enterPivot and enterPivot.Position) or (bounds and bounds.Position)
+    if checkPos then
+        local dist = (enemyRoot.Position - checkPos).Magnitude
+        if dist <= 180 then -- Standard room radius threshold
+            return true
+        end
+    end
+
+    return false
+end
+
 local function getClosestEnemy()
     local character = player.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
@@ -470,12 +540,18 @@ local function getClosestEnemy()
     local closestEnemy = nil
     local shortestDistance = autoAttackRange 
 
-    -- Target workspace.Mobs directly
     local mobsFolder = workspace:FindFirstChild("Mobs")
     if not mobsFolder then return nil end
 
+    local activeRoom = (autoRoomSequenceEnabled and #orderedRooms > 0) and orderedRooms[currentRoomIndex] or nil
+
     for _, mob in ipairs(mobsFolder:GetChildren()) do
         if isEnemy(mob) then
+            -- Filter mobs by active room if Sequential Mode is active
+            if activeRoom and not isEnemyInRoom(mob, activeRoom) then
+                continue
+            end
+
             local root = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
             if root then
                 local distance = (playerRoot.Position - root.Position).Magnitude
@@ -489,6 +565,69 @@ local function getClosestEnemy()
 
     return closestEnemy
 end
+
+-- // SEQUENTIAL ROOM AUTOMATION TASK // --
+task.spawn(function()
+    while true do
+        task.wait(0.4)
+        if autoRoomSequenceEnabled and not isDungeonCleared then
+            if #orderedRooms == 0 then
+                scanDungeonRooms()
+            end
+
+            if #orderedRooms > 0 then
+                local activeRoom = orderedRooms[currentRoomIndex]
+                if activeRoom then
+                    -- Count alive mobs in the current room
+                    local roomMobsCount = 0
+                    local mobsFolder = workspace:FindFirstChild("Mobs")
+                    if mobsFolder then
+                        for _, mob in ipairs(mobsFolder:GetChildren()) do
+                            if isEnemy(mob) and isEnemyInRoom(mob, activeRoom) then
+                                roomMobsCount = roomMobsCount + 1
+                            end
+                        end
+                    end
+
+                    -- Progression Trigger: No mobs remaining in this room
+                    if roomMobsCount == 0 then
+                        isTransitioningRoom = true
+                        updateNoclipState()
+
+                        -- Find Progression Hook (Exit Gate or Next Room's Entrance)
+                        local exitPivot = activeRoom:FindFirstChild("ExitPivot") 
+                            or activeRoom:FindFirstChild("ExitGate")
+                            or activeRoom:FindFirstChild("Gate")
+
+                        local nextRoom = orderedRooms[currentRoomIndex + 1]
+                        local enterPivotNext = nextRoom and (nextRoom:FindFirstChild("EnterPivot") or nextRoom.PrimaryPart)
+
+                        local waypointCFrame = (exitPivot and exitPivot:GetPivot()) 
+                            or (enterPivotNext and enterPivotNext:GetPivot())
+
+                        if waypointCFrame then
+                            local character = player.Character
+                            local root = character and character:FindFirstChild("HumanoidRootPart")
+                            if root then
+                                -- Move character directly to doorway waypoint to actuate gate trigger
+                                root.CFrame = waypointCFrame + Vector3.new(0, 3, 0)
+                                task.wait(1.2) -- Wait for server door actuation / tweening
+                            end
+                        end
+
+                        -- Advance Room Counter
+                        if currentRoomIndex < #orderedRooms then
+                            currentRoomIndex = currentRoomIndex + 1
+                        end
+
+                        isTransitioningRoom = false
+                        updateNoclipState()
+                    end
+                end
+            end
+        end
+    end
+end)
 
 task.spawn(function()
     while true do
@@ -519,6 +658,8 @@ RunService.Heartbeat:Connect(function(deltaTime)
     local root = character and character:FindFirstChild("HumanoidRootPart")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     if not root or not humanoid or humanoid.Health <= 0 then return end
+
+    if isTransitioningRoom then return end -- Handled by Room Manager
 
     local hasValidTarget = autoAttackEnabled 
         and targetEnemy 
@@ -592,7 +733,7 @@ local lastRemoteCall = 0
 task.spawn(function()
     while true do
         task.wait(M1_SPEED)
-        if autoAttackEnabled and targetEnemy and not safeSpotActive then
+        if autoAttackEnabled and targetEnemy and not safeSpotActive and not isTransitioningRoom then
             local character = player.Character
             if character and character:FindFirstChildOfClass("Tool") then
                 
@@ -623,7 +764,7 @@ local skillBinds = {
 task.spawn(function()
     while true do
         task.wait(0.05)
-        if autoSkillsEnabled and targetEnemy and not safeSpotActive then
+        if autoSkillsEnabled and targetEnemy and not safeSpotActive and not isTransitioningRoom then
             local now = os.clock()
             for _, skillData in ipairs(skillBinds) do
                 if skillData.GetEnabled() and (now - skillData.LastCast >= SKILL_INTERVAL) then
@@ -747,6 +888,8 @@ local function triggerAutoRetry(source)
                 end)
                 if success then 
                     isDungeonCleared = false
+                    currentRoomIndex = 1
+                    orderedRooms = {}
                     break 
                 end
             end
@@ -821,6 +964,8 @@ end)
 player.CharacterAdded:Connect(function()
     isDungeonCleared = false
     isFlyingToTarget = false
+    currentRoomIndex = 1
+    orderedRooms = {}
 end)
 
 -- 9. EVENT-DRIVEN AUTO COLLECT DROPS MODULE
