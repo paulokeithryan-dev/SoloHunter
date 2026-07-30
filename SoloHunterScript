@@ -49,6 +49,11 @@ local useWeaponRemote = remoteServices and remoteServices:WaitForChild("CombatSe
 local startDungeonRemote = remoteServices and remoteServices:WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = remoteServices and remoteServices:WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 
+-- // SHADOW EXTRACT REMOTE // --
+local shadowExtractService = remoteServices and remoteServices:WaitForChild("ShadowExtractService", 10)
+local shadowExtractRF = shadowExtractService and shadowExtractService:WaitForChild("RF", 10)
+local massExtractRemote = shadowExtractRF and shadowExtractRF:WaitForChild("MassExtract", 10)
+
 -- // PORTAL & TELEPORT REMOTES // --
 local teleportIntoDungeon = remoteServices and remoteServices:WaitForChild("DungeonService"):WaitForChild("RE"):WaitForChild("TeleportIntoDungeon")
 local teleportedSignal = remoteServices and remoteServices:WaitForChild("PortalService"):WaitForChild("RE"):WaitForChild("TeleportedSignal")
@@ -92,6 +97,7 @@ local SAFE_HOVER_HEIGHT = 100
 -- // AUTO COLLECT & OPEN CONFIG // --
 local autoCollectDrops = false
 local autoOpenChests = false
+local autoMassExtract = false
 
 local espEnabled = false
 local autoDungeonEnabled = true  
@@ -107,6 +113,7 @@ local circleAngle = 0
 
 -- // STATE TRACKING // --
 local isDungeonCleared = false
+local isFlyingToTarget = false
 
 -- // FIRESIGNAL WRAPPER // --
 local function safeFireSignal(event, ...)
@@ -120,7 +127,7 @@ local function safeFireSignal(event, ...)
     end
 end
 
--- // NOCLIP STATE ENGINE (OPTIMIZED) // --
+-- // NOCLIP STATE ENGINE // --
 local characterParts = {}
 local function cacheCharacterParts(char)
     characterParts = {}
@@ -166,9 +173,9 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v23 (Master)",
-   LoadingTitle = "Applying Engine Optimizations...",
-   LoadingSubtitle = "Protected & Upright Flight Active",
+   Name = "Modular Combat Engine v26 (Master)",
+   LoadingTitle = "Applying Target Attributes & Mob Filters...",
+   LoadingSubtitle = "Protected Movement Active",
    ConfigurationSaving = { 
       Enabled = true, 
       FolderName = "ModularCombatEngine", 
@@ -294,6 +301,13 @@ UtilityTab:CreateToggle({
 })
 
 UtilityTab:CreateToggle({
+   Name = "Auto Mass Extract Shadows",
+   CurrentValue = false,
+   Flag = "MCE_AutoMassExtract",
+   Callback = function(Value) autoMassExtract = Value end,
+})
+
+UtilityTab:CreateToggle({
    Name = "Auto-Potion (Below 50% HP)",
    CurrentValue = true,
    Flag = "MCE_AutoPotion",
@@ -330,8 +344,11 @@ VisualsTab:CreateToggle({
    Callback = function(Value) 
        espEnabled = Value 
        if not Value then
-           for _, v in ipairs(workspace:GetDescendants()) do
-               if v.Name == "CombatEngineESP" then v:Destroy() end
+           local mobsFolder = workspace:FindFirstChild("Mobs")
+           if mobsFolder then
+               for _, v in ipairs(mobsFolder:GetDescendants()) do
+                   if v.Name == "CombatEngineESP" then v:Destroy() end
+               end
            end
        end
    end,
@@ -419,52 +436,74 @@ ConfigTab:CreateButton({
    end,
 })
 
--- // CORE TARGETING ENGINE (OPTIMIZED) // --
+-- // ENHANCED TARGET VALIDATION ENGINE // --
 local targetEnemy = nil
 
 local function isEnemy(model)
-    if model:IsA("Model") and model ~= player.Character then
-        local humanoid = model:FindFirstChildOfClass("Humanoid")
-        local root = model:FindFirstChild("HumanoidRootPart")
-        if humanoid and root and humanoid.Health > 0 then
-            return true
-        end
+    if not (model and model:IsA("Model") and model ~= player.Character) then 
+        return false 
     end
-    return false
-end
 
-local function checkTarget(obj, playerRoot, closestEnemy, shortestDistance)
-    if isEnemy(obj) then
-        local distance = (playerRoot.Position - obj.HumanoidRootPart.Position).Magnitude
-        if distance <= shortestDistance then
-            return obj, distance
-        end
+    -- Attribute Filtering (Excludes Shadow Summons, Pets & Friendly NPCs)
+    if model:GetAttribute("IsPlayerTeam") == true then return false end
+    if model:GetAttribute("ExcludeFromDungeonCount") == true then return false end
+    if model:GetAttribute("Invincible") == true then return false end
+    if model:GetAttribute("Immune") == true then return false end
+    if model:GetAttribute("PlayerBelongsTo") ~= nil then return false end
+
+    -- Vital Component Checks
+    local humanoid = model:FindFirstChildOfClass("Humanoid")
+    local root = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+
+    if humanoid and root and humanoid.Health > 0 then
+        return true
     end
-    return closestEnemy, shortestDistance
+
+    return false
 end
 
 local function getClosestEnemy()
     local character = player.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    
     local playerRoot = character.HumanoidRootPart
     local closestEnemy = nil
     local shortestDistance = autoAttackRange 
 
-    for _, obj in ipairs(workspace:GetChildren()) do
-        closestEnemy, shortestDistance = checkTarget(obj, playerRoot, closestEnemy, shortestDistance)
-        if obj:IsA("Folder") or obj:IsA("Model") then
-            for _, subObj in ipairs(obj:GetChildren()) do
-                closestEnemy, shortestDistance = checkTarget(subObj, playerRoot, closestEnemy, shortestDistance)
+    -- Target workspace.Mobs directly
+    local mobsFolder = workspace:FindFirstChild("Mobs")
+    if not mobsFolder then return nil end
+
+    for _, mob in ipairs(mobsFolder:GetChildren()) do
+        if isEnemy(mob) then
+            local root = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
+            if root then
+                local distance = (playerRoot.Position - root.Position).Magnitude
+                if distance <= shortestDistance then
+                    closestEnemy = mob
+                    shortestDistance = distance
+                end
             end
         end
     end
+
     return closestEnemy
 end
 
 task.spawn(function()
     while true do
         if autoAttackEnabled or autoSkillsEnabled then
-            targetEnemy = getClosestEnemy()
+            local found = getClosestEnemy()
+            if found then
+                local hum = found:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    targetEnemy = found
+                else
+                    targetEnemy = nil
+                end
+            else
+                targetEnemy = nil
+            end
         else
             targetEnemy = nil
         end
@@ -476,19 +515,25 @@ end)
 
 -- 1. ADVANCED MOVEMENT MODULE
 RunService.Heartbeat:Connect(function(deltaTime)
-    if not autoAttackEnabled then return end
-
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    if not root or (humanoid and humanoid.Health <= 0) then return end
-    
-    if humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
-        pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Freefall) end)
-    end
-    
-    if targetEnemy and targetEnemy:FindFirstChild("HumanoidRootPart") and targetEnemy:FindFirstChildOfClass("Humanoid") and targetEnemy:FindFirstChildOfClass("Humanoid").Health > 0 then
-        local enemyRoot = targetEnemy.HumanoidRootPart
+    if not root or not humanoid or humanoid.Health <= 0 then return end
+
+    local hasValidTarget = autoAttackEnabled 
+        and targetEnemy 
+        and (targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart)
+        and targetEnemy:FindFirstChildOfClass("Humanoid") 
+        and targetEnemy:FindFirstChildOfClass("Humanoid").Health > 0
+
+    if hasValidTarget then
+        isFlyingToTarget = true
+        
+        if humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+            pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Freefall) end)
+        end
+
+        local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
         local targetPosition
         
         if safeSpotActive then
@@ -528,6 +573,17 @@ RunService.Heartbeat:Connect(function(deltaTime)
         root.AssemblyLinearVelocity = Vector3.new(0, 0.001, 0)
     else
         targetEnemy = nil
+        if isFlyingToTarget then
+            isFlyingToTarget = false
+            pcall(function() 
+                humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+                task.defer(function()
+                    if humanoid and humanoid.Parent then
+                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+                    end
+                end)
+            end)
+        end
     end
 end)
 
@@ -573,7 +629,7 @@ task.spawn(function()
                 if skillData.GetEnabled() and (now - skillData.LastCast >= SKILL_INTERVAL) then
                     local character = player.Character
                     local root = character and character:FindFirstChild("HumanoidRootPart")
-                    local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart")
+                    local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
                     
                     if root and enemyRoot and character:FindFirstChildOfClass("Tool") then
                         local currentDistance = (root.Position - enemyRoot.Position).Magnitude
@@ -764,6 +820,7 @@ end)
 
 player.CharacterAdded:Connect(function()
     isDungeonCleared = false
+    isFlyingToTarget = false
 end)
 
 -- 9. EVENT-DRIVEN AUTO COLLECT DROPS MODULE
@@ -807,22 +864,37 @@ if spawnChestRemote then
     end)
 end
 
--- 11. ESP MODULE (OPTIMIZED)
+-- 11. ESP MODULE (OPTIMIZED FOR MOBS FOLDER)
 task.spawn(function()
     while true do
         task.wait(0.5)
         if espEnabled then
-            for _, obj in ipairs(workspace:GetChildren()) do
-                if isEnemy(obj) and not obj:FindFirstChild("CombatEngineESP") then
-                    local highlight = Instance.new("Highlight")
-                    highlight.Name = "CombatEngineESP"
-                    highlight.FillColor = Color3.fromRGB(240, 60, 60)
-                    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-                    highlight.FillTransparency = 0.6
-                    highlight.Adornee = obj
-                    highlight.Parent = obj
+            local mobsFolder = workspace:FindFirstChild("Mobs")
+            if mobsFolder then
+                for _, obj in ipairs(mobsFolder:GetChildren()) do
+                    if isEnemy(obj) and not obj:FindFirstChild("CombatEngineESP") then
+                        local highlight = Instance.new("Highlight")
+                        highlight.Name = "CombatEngineESP"
+                        highlight.FillColor = Color3.fromRGB(240, 60, 60)
+                        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        highlight.FillTransparency = 0.6
+                        highlight.Adornee = obj
+                        highlight.Parent = obj
+                    end
                 end
             end
+        end
+    end
+end)
+
+-- 12. AUTO MASS EXTRACT SHADOWS MODULE
+task.spawn(function()
+    while true do
+        task.wait(3)
+        if autoMassExtract and massExtractRemote then
+            task.spawn(pcall, function()
+                massExtractRemote:InvokeServer()
+            end)
         end
     end
 end)
