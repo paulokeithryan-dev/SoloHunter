@@ -884,7 +884,7 @@ task.spawn(function()
         task.wait(0.5)
         if espEnabled then
             local mobsFolder = workspace:FindFirstChild("Mobs")
-            if mobsFolder me then
+            if mobsFolder then
                 for _, obj in ipairs(mobsFolder:GetChildren()) do
                     if isEnemy(obj) and not obj:FindFirstChild("CombatEngineESP") then
                         local highlight = Instance.new("Highlight")
