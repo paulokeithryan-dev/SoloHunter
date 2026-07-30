@@ -1,4 +1,13 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local Rayfield
+local success, result = pcall(function()
+    return loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
+end)
+
+if success and result then
+    Rayfield = result
+else
+    Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
