@@ -1,13 +1,4 @@
-local Rayfield
-local success, result = pcall(function()
-    return loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
-end)
-
-if success and result then
-    Rayfield = result
-else
-    Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-end
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -63,12 +54,6 @@ local shadowExtractService = remoteServices and remoteServices:WaitForChild("Sha
 local shadowExtractRF = shadowExtractService and shadowExtractService:WaitForChild("RF", 10)
 local massExtractRemote = shadowExtractRF and shadowExtractRF:WaitForChild("MassExtract", 10)
 
--- // MERCHANT REMOTES // --
-local merchantService = remoteServices and remoteServices:WaitForChild("MerchantService", 10)
-local merchantRF = merchantService and merchantService:WaitForChild("RF", 10)
-local merchantGetItemsRF = merchantRF and merchantRF:WaitForChild("GetItems", 10)
-local merchantBuyRF = merchantRF and merchantRF:WaitForChild("Buy", 10)
-
 -- // PORTAL & TELEPORT REMOTES // --
 local teleportIntoDungeon = remoteServices and remoteServices:WaitForChild("DungeonService"):WaitForChild("RE"):WaitForChild("TeleportIntoDungeon")
 local teleportedSignal = remoteServices and remoteServices:WaitForChild("PortalService"):WaitForChild("RE"):WaitForChild("TeleportedSignal")
@@ -113,7 +98,6 @@ local SAFE_HOVER_HEIGHT = 100
 local autoCollectDrops = false
 local autoOpenChests = false
 local autoMassExtract = false
-local autoBuyMerchantEnabled = false
 
 local espEnabled = false
 local autoDungeonEnabled = true  
@@ -321,13 +305,6 @@ UtilityTab:CreateToggle({
    CurrentValue = false,
    Flag = "MCE_AutoMassExtract",
    Callback = function(Value) autoMassExtract = Value end,
-})
-
-UtilityTab:CreateToggle({
-   Name = "Auto Buy Merchant Items",
-   CurrentValue = false,
-   Flag = "MCE_AutoBuyMerchant",
-   Callback = function(Value) autoBuyMerchantEnabled = Value end,
 })
 
 UtilityTab:CreateToggle({
@@ -918,64 +895,6 @@ task.spawn(function()
             task.spawn(pcall, function()
                 massExtractRemote:InvokeServer()
             end)
-        end
-    end
-end)
-
--- 13. AUTO BUY MERCHANT ITEMS MODULE
-local isBuyingMerchant = false
-local function processMerchantPurchase()
-    if isBuyingMerchant or not autoBuyMerchantEnabled then return end
-    if not (merchantGetItemsRF and merchantBuyRF) then return end
-
-    isBuyingMerchant = true
-    pcall(function()
-        local items = merchantGetItemsRF:InvokeServer()
-        if type(items) == "table" then
-            local currentRefresh = math.floor(workspace:GetServerTimeNow() / 300)
-            for slotKey, stock in pairs(items) do
-                local slotStr = tostring(slotKey)
-                local count = tonumber(stock) or 0
-                if count > 0 then
-                    for _ = 1, count do
-                        if not autoBuyMerchantEnabled then break end
-                        merchantBuyRF:InvokeServer("Normal", slotStr, currentRefresh)
-                        task.wait(0.15)
-                    end
-                end
-            end
-        end
-    end)
-    isBuyingMerchant = false
-end
-
--- Trigger on UI opening
-task.spawn(function()
-    local pGui = player:WaitForChild("PlayerGui", 10)
-    if pGui then
-        local merchantGui = pGui:WaitForChild("Merchant", 10)
-        local mainFrame = merchantGui and merchantGui:WaitForChild("Main", 10)
-        if mainFrame then
-            mainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
-                if mainFrame.Visible and autoBuyMerchantEnabled then
-                    task.spawn(processMerchantPurchase)
-                end
-            end)
-        end
-    end
-end)
-
--- Polling loop while UI is open
-task.spawn(function()
-    while true do
-        task.wait(1)
-        if autoBuyMerchantEnabled then
-            local pGui = player:FindFirstChild("PlayerGui")
-            local merchantGui = pGui and pGui:FindFirstChild("Merchant")
-            local mainFrame = merchantGui and merchantGui:FindFirstChild("Main")
-            if mainFrame and mainFrame.Visible then
-                processMerchantPurchase()
-            end
         end
     end
 end)
