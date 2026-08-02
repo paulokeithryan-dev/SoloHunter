@@ -173,7 +173,7 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v26 (Master)",
+   Name = "Modular Combat Engine v27 (Stable Master)",
    LoadingTitle = "Applying Target Attributes & Mob Filters...",
    LoadingSubtitle = "Protected Movement Active",
    ConfigurationSaving = { 
@@ -512,7 +512,7 @@ end)
 
 -- // SYSTEM MODULES // --
 
--- 1. ADVANCED MOVEMENT MODULE (FIXED JOYSTICK & SAFE SPOT INDEPENDENCE)
+-- 1. ADVANCED MOVEMENT MODULE (STABLE STATE GUARDED)
 RunService.Heartbeat:Connect(function(deltaTime)
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -527,7 +527,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
     local shouldFly = (autoAttackEnabled and hasValidEnemy) or safeSpotActive
 
     if shouldFly then
-        -- Only set Freefall ONCE when transitioning to flight to prevent UI/Joystick reset
+        -- State Guard: Only trigger state transition ONCE to protect mobile joysticks
         if not isFlyingToTarget then
             isFlyingToTarget = true
             pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Freefall) end)
@@ -611,7 +611,7 @@ task.spawn(function()
     end
 end)
 
--- 3. AUTO SKILLS SYSTEM (FIXED 2D HORIZONTAL DISTANCE CHECK)
+-- 3. AUTO SKILLS SYSTEM (2D HORIZONTAL DISTANCE CHECK)
 local skillBinds = {
     {Key = Enum.KeyCode.F, GetEnabled = function() return castF end, LastCast = 0},
     {Key = Enum.KeyCode.R, GetEnabled = function() return castR end, LastCast = 0},
@@ -632,7 +632,7 @@ task.spawn(function()
                     local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
                     
                     if root and enemyRoot and character:FindFirstChildOfClass("Tool") then
-                        -- Calculate 2D distance so vertical elevation doesn't block casting
+                        -- 2D planar distance prevents hover height from blocking skill triggers
                         local flatDist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(enemyRoot.Position.X, 0, enemyRoot.Position.Z)).Magnitude
                         if flatDist <= (attackDistance + 20) then
                             skillData.LastCast = now
@@ -690,7 +690,7 @@ task.spawn(function()
     end
 end)
 
--- 6. AUTO EQUIP MODULE (DIRECT BACKPACK EQUIP WITH KEYPRESS FALLBACK)
+-- 6. AUTO EQUIP MODULE (BACKPACK DIRECT + KEYPRESS FALLBACK)
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -735,7 +735,7 @@ task.spawn(function()
     end
 end)
 
--- 8. UNIFIED AUTO RETRY & DEMON CASTLE MODULE
+-- 8. UNIFIED AUTO RETRY & DEMON CASTLE MODULE (THREAD-LOCKED)
 local isRetryPending = false
 
 local function triggerAutoRetry(source)
@@ -846,13 +846,13 @@ if dropCreatedRemote then
     end)
 end
 
--- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE (FLEXIBLE IDENTIFIER RESOLUTION)
+-- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE (FLEXIBLE ARGS RESOLUTION)
 if spawnChestRemote then
     spawnChestRemote.OnClientEvent:Connect(function(...)
         if autoOpenChests and openChestRemote then
             local args = {...}
             task.spawn(function()
-                task.wait(0.3) -- Brief buffer delay for server-side initialization
+                task.wait(0.3) -- Delay buffer for server-side initialization
                 for _, arg in ipairs(args) do
                     if type(arg) == "string" then
                         pcall(function() openChestRemote:InvokeServer(arg) end)
