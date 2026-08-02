@@ -444,7 +444,7 @@ local function isEnemy(model)
         return false 
     end
 
-    -- Attribute Filtering (Excludes Shadow Summons, Pets & Friendly NPCs)
+    -- Attribute Filtering
     if model:GetAttribute("IsPlayerTeam") == true then return false end
     if model:GetAttribute("ExcludeFromDungeonCount") == true then return false end
     if model:GetAttribute("Invincible") == true then return false end
@@ -470,7 +470,6 @@ local function getClosestEnemy()
     local closestEnemy = nil
     local shortestDistance = autoAttackRange 
 
-    -- Target workspace.Mobs directly
     local mobsFolder = workspace:FindFirstChild("Mobs")
     if not mobsFolder then return nil end
 
@@ -513,32 +512,41 @@ end)
 
 -- // SYSTEM MODULES // --
 
--- 1. ADVANCED MOVEMENT MODULE
+-- 1. ADVANCED MOVEMENT MODULE (FIXED JOYSTICK & SAFE SPOT INDEPENDENCE)
 RunService.Heartbeat:Connect(function(deltaTime)
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     if not root or not humanoid or humanoid.Health <= 0 then return end
 
-    local hasValidTarget = autoAttackEnabled 
-        and targetEnemy 
+    local hasValidEnemy = targetEnemy 
         and (targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart)
         and targetEnemy:FindFirstChildOfClass("Humanoid") 
         and targetEnemy:FindFirstChildOfClass("Humanoid").Health > 0
 
-    if hasValidTarget then
-        isFlyingToTarget = true
-        
-        if humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+    local shouldFly = (autoAttackEnabled and hasValidEnemy) or safeSpotActive
+
+    if shouldFly then
+        -- Only set Freefall ONCE when transitioning to flight to prevent UI/Joystick reset
+        if not isFlyingToTarget then
+            isFlyingToTarget = true
             pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Freefall) end)
         end
 
-        local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
         local targetPosition
-        
+        local lookTarget
+
         if safeSpotActive then
-            targetPosition = enemyRoot.Position + Vector3.new(0.01, SAFE_HOVER_HEIGHT, 0)
+            if hasValidEnemy then
+                local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
+                targetPosition = enemyRoot.Position + Vector3.new(0.01, SAFE_HOVER_HEIGHT, 0)
+                lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
+            else
+                targetPosition = root.Position + Vector3.new(0.01, SAFE_HOVER_HEIGHT, 0)
+                lookTarget = targetPosition + root.CFrame.LookVector
+            end
         else
+            local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
             if positioningMode == "Above" then
                 targetPosition = enemyRoot.Position + Vector3.new(0.01, HOVER_HEIGHT, 0)
             elseif positioningMode == "Circle" then
@@ -548,9 +556,8 @@ RunService.Heartbeat:Connect(function(deltaTime)
                 local offsetZ = math.sin(circleAngle) * radius
                 targetPosition = enemyRoot.Position + Vector3.new(offsetX, HOVER_HEIGHT, offsetZ)
             end
+            lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
         end
-        
-        local lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
         
         if movementMethod == "Teleport" and not safeSpotActive then
             root.CFrame = CFrame.lookAt(targetPosition, lookTarget)
@@ -565,23 +572,17 @@ RunService.Heartbeat:Connect(function(deltaTime)
                 local operationalSpeed = safeSpotActive and 200 or tweenSpeed
                 local glideStep = math.min(dist, operationalSpeed * deltaTime)
                 local calculatedPosition = currentPos + (travelVector.Unit * glideStep)
-                local currentLook = Vector3.new(enemyRoot.Position.X, calculatedPosition.Y, enemyRoot.Position.Z)
+                local currentLook = Vector3.new(lookTarget.X, calculatedPosition.Y, lookTarget.Z)
                 root.CFrame = CFrame.lookAt(calculatedPosition, currentLook)
             end
         end
         
         root.AssemblyLinearVelocity = Vector3.new(0, 0.001, 0)
     else
-        targetEnemy = nil
         if isFlyingToTarget then
             isFlyingToTarget = false
             pcall(function() 
-                humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-                task.defer(function()
-                    if humanoid and humanoid.Parent then
-                        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                    end
-                end)
+                humanoid:ChangeState(Enum.HumanoidStateType.Running)
             end)
         end
     end
@@ -595,7 +596,6 @@ task.spawn(function()
         if autoAttackEnabled and targetEnemy and not safeSpotActive then
             local character = player.Character
             if character and character:FindFirstChildOfClass("Tool") then
-                
                 if os.clock() - lastRemoteCall >= 0.25 then
                     lastRemoteCall = os.clock()
                     task.spawn(function()
@@ -611,7 +611,7 @@ task.spawn(function()
     end
 end)
 
--- 3. AUTO SKILLS SYSTEM (NON-BLOCKING INDIVIDUAL COOLDOWNS)
+-- 3. AUTO SKILLS SYSTEM (FIXED 2D HORIZONTAL DISTANCE CHECK)
 local skillBinds = {
     {Key = Enum.KeyCode.F, GetEnabled = function() return castF end, LastCast = 0},
     {Key = Enum.KeyCode.R, GetEnabled = function() return castR end, LastCast = 0},
@@ -632,8 +632,9 @@ task.spawn(function()
                     local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
                     
                     if root and enemyRoot and character:FindFirstChildOfClass("Tool") then
-                        local currentDistance = (root.Position - enemyRoot.Position).Magnitude
-                        if currentDistance <= (attackDistance + 8) then
+                        -- Calculate 2D distance so vertical elevation doesn't block casting
+                        local flatDist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(enemyRoot.Position.X, 0, enemyRoot.Position.Z)).Magnitude
+                        if flatDist <= (attackDistance + 20) then
                             skillData.LastCast = now
                             VirtualInputManager:SendKeyEvent(true, skillData.Key, false, game)
                             task.wait(0.02)
@@ -689,17 +690,24 @@ task.spawn(function()
     end
 end)
 
--- 6. AUTO EQUIP MODULE
+-- 6. AUTO EQUIP MODULE (DIRECT BACKPACK EQUIP WITH KEYPRESS FALLBACK)
 task.spawn(function()
     while true do
         task.wait(0.5)
         if autoEquipEnabled then
             local character = player.Character
-            if character and character:FindFirstChildOfClass("Humanoid") and character.Humanoid.Health > 0 then
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health > 0 then
                 if not character:FindFirstChildOfClass("Tool") then
-                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
-                    task.wait(0.02)
-                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+                    local backpack = player:FindFirstChild("Backpack")
+                    local tool = backpack and backpack:FindFirstChildOfClass("Tool")
+                    if tool then
+                        humanoid:EquipTool(tool)
+                    else
+                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
+                        task.wait(0.02)
+                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+                    end
                 end
             end
         end
@@ -838,28 +846,26 @@ if dropCreatedRemote then
     end)
 end
 
--- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE
+-- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE (FLEXIBLE IDENTIFIER RESOLUTION)
 if spawnChestRemote then
     spawnChestRemote.OnClientEvent:Connect(function(...)
         if autoOpenChests and openChestRemote then
             local args = {...}
-            local chestUUID = nil
-            
-            for _, arg in ipairs(args) do
-                if type(arg) == "string" and arg:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
-                    chestUUID = arg
-                    break
-                elseif type(arg) == "table" and arg.ChestUUID then
-                    chestUUID = arg.ChestUUID
-                    break
+            task.spawn(function()
+                task.wait(0.3) -- Brief buffer delay for server-side initialization
+                for _, arg in ipairs(args) do
+                    if type(arg) == "string" then
+                        pcall(function() openChestRemote:InvokeServer(arg) end)
+                    elseif type(arg) == "table" then
+                        local chestID = arg.ChestUUID or arg.UUID or arg.Id or arg.ChestId
+                        if chestID then
+                            pcall(function() openChestRemote:InvokeServer(chestID) end)
+                        else
+                            pcall(function() openChestRemote:InvokeServer(arg) end)
+                        end
+                    end
                 end
-            end
-            
-            if chestUUID then
-                task.spawn(pcall, function()
-                    openChestRemote:InvokeServer(chestUUID)
-                end)
-            end
+            end)
         end
     end)
 end
