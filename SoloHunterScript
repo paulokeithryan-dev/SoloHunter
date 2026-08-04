@@ -1186,38 +1186,41 @@ task.spawn(function()
     end
 end)
 
--- 13. AUTO BUY MERCHANT VENDING MACHINE MODULE
+-- 13. AUTO BUY MERCHANT VENDING MACHINE MODULE (UPDATED VIA DECOMPILED CONTROLLER LOGIC)
+local function getCurrentMerchantRefresh()
+    local serverTime = workspace:GetServerTimeNow()
+    return math.floor(serverTime / 300)
+end
+
 task.spawn(function()
     while true do
         task.wait(merchantBuyDelay)
         if autoBuyMerchantEnabled and getMerchantItemsRemote and buyMerchantRemote and #selectedMerchantItems > 0 then
-            local getSuccess, stockResult, verificationCode = pcall(function()
+            local getSuccess, stockResult = pcall(function()
                 return getMerchantItemsRemote:InvokeServer()
             end)
 
             if getSuccess and type(stockResult) == "table" then
+                local currentRefresh = getCurrentMerchantRefresh()
+
                 for _, selectedName in ipairs(selectedMerchantItems) do
                     local slotKey = merchantItemMap[selectedName]
                     if slotKey and stockResult[slotKey] and stockResult[slotKey] > 0 then
                         task.spawn(function()
                             local buySuccess, buyRes = pcall(function()
-                                if verificationCode then
-                                    return buyMerchantRemote:InvokeServer("Normal", slotKey, verificationCode)
-                                else
-                                    return buyMerchantRemote:InvokeServer("Normal", slotKey)
-                                end
+                                return buyMerchantRemote:InvokeServer("Normal", tostring(slotKey), currentRefresh)
                             end)
                             
                             if buySuccess then
                                 Rayfield:Notify({
                                     Title = "Merchant Auto Buy",
-                                    Content = "Bought: " .. tostring(selectedName),
+                                    Content = "Successfully bought: " .. tostring(selectedName),
                                     Duration = 3,
                                     Image = 4483362458,
                                 })
                             end
                         end)
-                        task.wait(0.3)
+                        task.wait(0.2)
                     end
                 end
             end
