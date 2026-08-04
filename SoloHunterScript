@@ -194,7 +194,7 @@ CombatTab:CreateToggle({
 })
 
 CombatTab:CreateToggle({
-   Name = "Filter Mobs (Ignore Team/Pets/Invincible)",
+   Name = "Filter Mobs (Ignore Invincible/Immune/Extra)",
    CurrentValue = true,
    Flag = "MCE_FilterMobs",
    Callback = function(Value) filterMobsEnabled = Value end,
@@ -453,12 +453,15 @@ local function isEnemy(model)
         return false
     end
 
+    -- ALWAYS ENFORCED SAFETY FILTERS (Active even if "Filter Mobs" is OFF)
+    if model:GetAttribute("IsPlayerTeam") == true then return false end
+    if model:GetAttribute("PlayerBelongsTo") ~= nil then return false end
+
+    -- OPTIONAL FILTERS (Controlled by "Filter Mobs" toggle)
     if filterMobsEnabled then
-        if model:GetAttribute("IsPlayerTeam") == true then return false end
         if model:GetAttribute("ExcludeFromDungeonCount") == true then return false end
         if model:GetAttribute("Invincible") == true then return false end
         if model:GetAttribute("Immune") == true then return false end
-        if model:GetAttribute("PlayerBelongsTo") ~= nil then return false end
     end
 
     return true
