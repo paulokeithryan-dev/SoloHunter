@@ -161,10 +161,10 @@ local function safeFireSignal(event, ...)
     if firesignal then
         local success, err = pcall(firesignal, event, ...)
         if not success then
-            warn("MCE Engine: Failed to fire signal - " .. tostring(err))
+            warn("System Engine: Failed to fire signal - " .. tostring(err))
         end
     else
-        warn("MCE Engine: Current executor does not support 'firesignal'.")
+        warn("System Engine: Current executor does not support 'firesignal'.")
     end
 end
 
@@ -212,26 +212,76 @@ local function updateNoclipState()
     end
 end
 
--- // RAYFIELD UI SETUP // --
+-- // SOLO LEVELING SYSTEM UI INITIALIZATION // --
+local SoloLevelingTheme = {
+    TextColor = Color3.fromRGB(220, 240, 255),
+    Background = Color3.fromRGB(10, 12, 18),
+    Topbar = Color3.fromRGB(15, 20, 32),
+    Accent = Color3.fromRGB(0, 180, 255),
+    ElementBackground = Color3.fromRGB(20, 26, 40),
+    ElementBackgroundHover = Color3.fromRGB(30, 40, 60),
+    ElementBorder = Color3.fromRGB(35, 50, 80),
+    DropdownHolder = Color3.fromRGB(15, 20, 32)
+}
+
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v30 (Master)",
-   LoadingTitle = "Applying Target Attributes & Mob Filters...",
-   LoadingSubtitle = "Protected Movement Active",
+   Name = "SYSTEM // SHADOW MONARCH ENGINE",
+   LoadingTitle = "[SYSTEM NOTIFICATION: PLAYER AUTHORIZED]",
+   LoadingSubtitle = "Initializing Combat Modules...",
+   Theme = SoloLevelingTheme,
    ConfigurationSaving = { 
       Enabled = true, 
-      FolderName = "ModularCombatEngine", 
-      FileName = "Config" 
+      FolderName = "SoloLevelingSystem", 
+      FileName = "SystemConfig" 
    },
 })
 
 -- Tabs
+local HelpTab = Window:CreateTab("Help", nil)
 local CombatTab = Window:CreateTab("Combat & Movement", nil)
 local UtilityTab = Window:CreateTab("Utilities & HP", nil)
 local ShopTab = Window:CreateTab("Shop", nil)
 local VisualsTab = Window:CreateTab("Visuals & Dungeons", nil)
 local ConfigTab = Window:CreateTab("Configuration", nil)
 
+-- ==========================================
+-- [HELP TAB - LOGIC & USAGE INSTRUCTIONS]
+-- ==========================================
+HelpTab:CreateSection("System Logic & Operations Manual")
+
+HelpTab:CreateParagraph({
+    Title = "1. Auto Attack & Flight Engine",
+    Content = "• WHAT IT DOES: Locks onto the closest target within your 'Detection Range', flies your character directly above/around the mob, and automatically attacks.\n• HOW TO USE: Enable 'Auto Attack'. Choose 'Teleport' for instant positioning, or 'Tween' for smooth movement (includes automatic Noclip to bypass obstacles)."
+})
+
+HelpTab:CreateParagraph({
+    Title = "2. Positioning Modes (Above vs Circle)",
+    Content = "• WHAT IT DOES: Determines where your character floats relative to the target mob.\n• ABOVE: Places you vertically above the mob at 'Classic Hover Height'. Best for avoiding ground attacks.\n• CIRCLE: Rotates your character in a orbital ring around the mob. Useful against bosses with frontal directional attacks."
+})
+
+HelpTab:CreateParagraph({
+    Title = "3. Auto Skills System",
+    Content = "• WHAT IT DOES: Periodically triggers selected skill keys (F, R, C, G, V) when you are close enough to a locked enemy.\n• HOW TO USE: Toggle 'Auto Cast Skills', then turn on the specific Skill Binds you want to cast. Note: Requires 'Auto Attack' to be enabled."
+})
+
+HelpTab:CreateParagraph({
+    Title = "4. Emergency Safe Spot System",
+    Content = "• WHAT IT DOES: Acts as an emergency cheat-death protocol. When your HP drops below the 'Trigger HP %', your character is instantly rocketed 100 studs into the air until your HP recovers to 90%.\n• HOW TO USE: Set 'Safe Spot Trigger HP %' lower than your potion threshold (e.g., 25%). Useful for soloing high-level raids or bosses."
+})
+
+HelpTab:CreateParagraph({
+    Title = "5. Auto Retry & Demon Castle Logic",
+    Content = "• AUTO RETRY: Automatically triggers the retry remote or clicks the 'Replay/Retry' UI button upon dungeon completion.\n• AUTO DEMON CASTLE: Automatically listens for floor portal spawns and bypasses gate delays to instantly teleport you to the next floor."
+})
+
+HelpTab:CreateParagraph({
+    Title = "6. Silent Merchant Auto-Buy",
+    Content = "• WHAT IT DOES: Automatically scans the Merchant's server inventory and purchases selected items directly via server remotes, without opening shop UIs or creating notifications.\n• HOW TO USE: Select items from the dropdown, toggle 'Auto Buy Merchant Items', and adjust the scan interval."
+})
+
+-- ==========================================
 -- [COMBAT & MOVEMENT TAB]
+-- ==========================================
 CombatTab:CreateToggle({
    Name = "Auto Attack (Lock, Fly & Attack)",
    CurrentValue = false,
@@ -334,7 +384,9 @@ CombatTab:CreateToggle({
    Callback = function(Value) castV = Value end,
 })
 
+-- ==========================================
 -- [UTILITIES & HP TAB]
+-- ==========================================
 UtilityTab:CreateToggle({
    Name = "Auto Collect Drops",
    CurrentValue = false,
@@ -385,7 +437,9 @@ UtilityTab:CreateSlider({
    Callback = function(Value) safeHpPercent = Value end,
 })
 
+-- ==========================================
 -- [SHOP TAB]
+-- ==========================================
 ShopTab:CreateSection("Merchant Vending Machine")
 
 ShopTab:CreateToggle({
@@ -415,7 +469,9 @@ ShopTab:CreateSlider({
    Callback = function(Value) merchantBuyDelay = Value end,
 })
 
+-- ==========================================
 -- [VISUALS & DUNGEONS TAB]
+-- ==========================================
 VisualsTab:CreateToggle({
    Name = "Enemy ESP",
    CurrentValue = false,
@@ -472,7 +528,9 @@ VisualsTab:CreateSlider({
    Callback = function(Value) autoDungeonRange = Value end,
 })
 
+-- ==========================================
 -- [CONFIGURATION TAB]
+-- ==========================================
 ConfigTab:CreateSection("Movement Settings")
 
 ConfigTab:CreateDropdown({
@@ -512,11 +570,11 @@ ConfigTab:CreateButton({
    Callback = function()
        if delfile then
            pcall(function()
-               delfile("ModularCombatEngine/Config.json")
+               delfile("SoloLevelingSystem/SystemConfig.json")
            end)
            Rayfield:Notify({
-               Title = "Config Purged",
-               Content = "JSON cache cleared!",
+               Title = "System Reset",
+               Content = "Configuration cache purged successfully!",
                Duration = 5,
                Image = 4483362458,
            })
@@ -539,11 +597,9 @@ local function isEnemy(model)
         return false
     end
 
-    -- ALWAYS ENFORCED SAFETY FILTERS
     if model:GetAttribute("IsPlayerTeam") == true then return false end
     if model:GetAttribute("PlayerBelongsTo") ~= nil then return false end
 
-    -- OPTIONAL FILTERS
     if filterMobsEnabled then
         if model:GetAttribute("ExcludeFromDungeonCount") == true then return false end
         if model:GetAttribute("Invincible") == true then return false end
@@ -727,7 +783,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
     end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE
+-- AUTO ATTACK MODULE
 local lastRemoteCall = 0
 task.spawn(function()
     while true do
@@ -752,7 +808,7 @@ task.spawn(function()
     end
 end)
 
--- 3. AUTO SKILLS SYSTEM
+-- AUTO SKILLS SYSTEM
 local skillBinds = {
     {Key = Enum.KeyCode.F, GetEnabled = function() return castF end, LastCast = 0},
     {Key = Enum.KeyCode.R, GetEnabled = function() return castR end, LastCast = 0},
@@ -798,7 +854,7 @@ task.spawn(function()
     end
 end)
 
--- 4. AUTO POTION MODULE
+-- AUTO POTION MODULE
 task.spawn(function()
     while true do
         task.wait(0.4)
@@ -813,7 +869,7 @@ task.spawn(function()
     end
 end)
 
--- 5. LOW HP AUTO SAFE SPOT CONTROLLER
+-- LOW HP AUTO SAFE SPOT CONTROLLER
 task.spawn(function()
     while true do
         task.wait(0.1)
@@ -841,7 +897,7 @@ task.spawn(function()
     end
 end)
 
--- 6. AUTO EQUIP MODULE
+-- AUTO EQUIP MODULE
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -867,7 +923,7 @@ task.spawn(function()
     end
 end)
 
--- 7. AUTO-DUNGEON PROGRESSION MODULE
+-- AUTO-DUNGEON PROGRESSION MODULE
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -888,7 +944,7 @@ task.spawn(function()
     end
 end)
 
--- 8. ENHANCED DUAL-ACTION AUTO RETRY & DEMON CASTLE MODULE
+-- DUAL-ACTION AUTO RETRY & DEMON CASTLE MODULE
 local isRetryPending = false
 
 local function findAndClickRetryButton()
@@ -963,7 +1019,7 @@ local function triggerAutoRetry(source)
             if success then
                 isDungeonCleared = false
                 Rayfield:Notify({
-                    Title = "Auto Retry Executed",
+                    Title = "[SYSTEM] Auto Retry Executed",
                     Content = "Successfully retried via " .. (attempts == 1 and "Remote" or "UI Fallback") .. "!",
                     Duration = 3,
                     Image = 4483362458,
@@ -1025,7 +1081,7 @@ task.spawn(function()
     end
 end)
 
--- 8.5. POST-CLEAR AUTO CLICK ENGINE
+-- POST-CLEAR AUTO CLICK ENGINE
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -1046,7 +1102,7 @@ player.CharacterAdded:Connect(function()
     isFlyingToTarget = false
 end)
 
--- 9. EVENT-DRIVEN AUTO COLLECT DROPS MODULE
+-- EVENT-DRIVEN AUTO COLLECT DROPS MODULE
 if dropCreatedRemote then
     dropCreatedRemote.OnClientEvent:Connect(function(dropId, dropType, dropBase, position, dropData)
         if autoCollectDrops and collectDropRemote then
@@ -1061,7 +1117,7 @@ if dropCreatedRemote then
     end)
 end
 
--- 10. HYBRID AUTO OPEN CHEST MODULE
+-- HYBRID AUTO OPEN CHEST MODULE
 local openedChestsCache = {}
 
 local function handlePhysicalChest(chestObj)
@@ -1100,7 +1156,6 @@ local function handlePhysicalChest(chestObj)
     end)
 end
 
--- 10a. Network Event Listener
 if spawnChestRemote then
     spawnChestRemote.OnClientEvent:Connect(function(...)
         if autoOpenChests and openChestRemote then
@@ -1126,7 +1181,6 @@ if spawnChestRemote then
     end)
 end
 
--- 10b. Workspace ChildAdded Listener
 workspace.ChildAdded:Connect(function(child)
     if autoOpenChests then
         local childName = child.Name:lower()
@@ -1136,7 +1190,6 @@ workspace.ChildAdded:Connect(function(child)
     end
 end)
 
--- 10c. Workspace Polling Scan
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -1151,7 +1204,7 @@ task.spawn(function()
     end
 end)
 
--- 11. ESP MODULE
+-- ESP MODULE
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -1162,9 +1215,9 @@ task.spawn(function()
                     if isEnemy(obj) and not obj:FindFirstChild("CombatEngineESP") then
                         local highlight = Instance.new("Highlight")
                         highlight.Name = "CombatEngineESP"
-                        highlight.FillColor = Color3.fromRGB(240, 60, 60)
+                        highlight.FillColor = Color3.fromRGB(0, 180, 255)
                         highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-                        highlight.FillTransparency = 0.6
+                        highlight.FillTransparency = 0.5
                         highlight.Adornee = obj
                         highlight.Parent = obj
                     end
@@ -1174,7 +1227,7 @@ task.spawn(function()
     end
 end)
 
--- 12. AUTO MASS EXTRACT SHADOWS MODULE
+-- AUTO MASS EXTRACT SHADOWS MODULE
 task.spawn(function()
     while true do
         task.wait(3)
@@ -1186,7 +1239,7 @@ task.spawn(function()
     end
 end)
 
--- 13. AUTO BUY MERCHANT VENDING MACHINE MODULE (UPDATED VIA DECOMPILED CONTROLLER LOGIC)
+-- SILENT AUTO BUY MERCHANT VENDING MACHINE MODULE
 local function getCurrentMerchantRefresh()
     local serverTime = workspace:GetServerTimeNow()
     return math.floor(serverTime / 300)
@@ -1207,18 +1260,9 @@ task.spawn(function()
                     local slotKey = merchantItemMap[selectedName]
                     if slotKey and stockResult[slotKey] and stockResult[slotKey] > 0 then
                         task.spawn(function()
-                            local buySuccess, buyRes = pcall(function()
+                            pcall(function()
                                 return buyMerchantRemote:InvokeServer("Normal", tostring(slotKey), currentRefresh)
                             end)
-                            
-                            if buySuccess then
-                                Rayfield:Notify({
-                                    Title = "Merchant Auto Buy",
-                                    Content = "Successfully bought: " .. tostring(selectedName),
-                                    Duration = 3,
-                                    Image = 4483362458,
-                                })
-                            end
                         end)
                         task.wait(0.2)
                     end
