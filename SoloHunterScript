@@ -33,6 +33,12 @@ local useWeaponRemote = remoteServices and remoteServices:WaitForChild("CombatSe
 local startDungeonRemote = remoteServices and remoteServices:WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("StartDungeon")
 local enterGateRemote = remoteServices and remoteServices:WaitForChild("PortalService"):WaitForChild("RF"):WaitForChild("CanEnterGate")
 
+-- // MERCHANT REMOTES // --
+local merchantService = remoteServices and remoteServices:WaitForChild("MerchantService", 10)
+local merchantRF = merchantService and merchantService:WaitForChild("RF", 10)
+local getMerchantItemsRemote = merchantRF and merchantRF:WaitForChild("GetItems", 10)
+local buyMerchantRemote = merchantRF and merchantRF:WaitForChild("Buy", 10)
+
 -- // SHADOW EXTRACT REMOTE // --
 local shadowExtractService = remoteServices and remoteServices:WaitForChild("ShadowExtractService", 10)
 local shadowExtractRF = shadowExtractService and shadowExtractService:WaitForChild("RF", 10)
@@ -51,6 +57,40 @@ local collectDropRemote = remoteServices and remoteServices:WaitForChild("DropsS
 local spawnChestRemote = remoteServices and remoteServices:WaitForChild("BossDropsService"):WaitForChild("RE"):WaitForChild("SpawnChest")
 local openChestRemote = remoteServices and remoteServices:WaitForChild("BossDropsService"):WaitForChild("RF"):WaitForChild("OpenChest")
 local retryDungeonRemote = remoteServices and remoteServices:WaitForChild("DungeonService"):WaitForChild("RF"):WaitForChild("SpawnQuickPortal")
+
+-- // MERCHANT CONFIGURATION & DYNAMIC MAPPING // --
+local merchantItemMap = {}
+local merchantItemNames = {}
+
+pcall(function()
+    local merchantConfigModule = ReplicatedStorage:WaitForChild("Modules", 5)
+        :WaitForChild("Shared", 5)
+        :WaitForChild("Config", 5)
+        :WaitForChild("Economy", 5)
+        :WaitForChild("MerchantItems", 5)
+        
+    local configData = require(merchantConfigModule)
+    if configData and configData["Normal"] then
+        for index, itemInfo in ipairs(configData["Normal"]) do
+            local itemName = itemInfo.Base or ("Item_" .. tostring(index))
+            local slotKey = tostring(index)
+            merchantItemMap[itemName] = slotKey
+            table.insert(merchantItemNames, itemName)
+        end
+    end
+end)
+
+-- Fallback mapping if module failed to load dynamically
+if #merchantItemNames == 0 then
+    merchantItemNames = {
+        "Demon Castle Ticket", "Powercell1", "Shadow Trace", "Shadow Essence",
+        "Basic Scroll", "Epic Scroll", "Legendary Scroll", "Powercell2",
+        "Powercell3", "Magic Fruit", "Stat Crystal", "Perfect Stat Cube"
+    }
+    for i, name in ipairs(merchantItemNames) do
+        merchantItemMap[name] = tostring(i)
+    end
+end
 
 -- // INDEPENDENT CONFIG VARIABLES // --
 local autoAttackEnabled = false
@@ -83,6 +123,11 @@ local SAFE_HOVER_HEIGHT = 100
 local autoCollectDrops = false
 local autoOpenChests = false
 local autoMassExtract = false
+
+-- // AUTO BUY MERCHANT CONFIG // --
+local autoBuyMerchantEnabled = false
+local selectedMerchantItems = {}
+local merchantBuyDelay = 2
 
 local espEnabled = false
 local autoDungeonEnabled = true  
@@ -172,6 +217,7 @@ local Window = Rayfield:CreateWindow({
 -- Tabs
 local CombatTab = Window:CreateTab("Combat & Movement", nil)
 local UtilityTab = Window:CreateTab("Utilities & HP", nil)
+local ShopTab = Window:CreateTab("Shop", nil)
 local VisualsTab = Window:CreateTab("Visuals & Dungeons", nil)
 local ConfigTab = Window:CreateTab("Configuration", nil)
 
@@ -327,6 +373,36 @@ UtilityTab:CreateSlider({
    CurrentValue = 25,
    Flag = "MCE_SafeSpotHP",
    Callback = function(Value) safeHpPercent = Value end,
+})
+
+-- [SHOP TAB]
+ShopTab:CreateSection("Merchant Vending Machine")
+
+ShopTab:CreateToggle({
+   Name = "Auto Buy Merchant Items",
+   CurrentValue = false,
+   Flag = "MCE_AutoBuyMerchant",
+   Callback = function(Value) autoBuyMerchantEnabled = Value end,
+})
+
+ShopTab:CreateDropdown({
+   Name = "Select Items to Auto-Buy",
+   Options = merchantItemNames,
+   CurrentOption = {},
+   MultipleOptions = true,
+   Flag = "MCE_MerchantSelectItems",
+   Callback = function(Options)
+       selectedMerchantItems = type(Options) == "table" and Options or {Options}
+   end,
+})
+
+ShopTab:CreateSlider({
+   Name = "Check Stock Interval (Sec)",
+   Range = {1, 10},
+   Increment = 0.5,
+   CurrentValue = 2,
+   Flag = "MCE_MerchantCheckDelay",
+   Callback = function(Value) merchantBuyDelay = Value end,
 })
 
 -- [VISUALS & DUNGEONS TAB]
@@ -623,8 +699,8 @@ RunService.Heartbeat:Connect(function(deltaTime)
                 local operationalSpeed = safeSpotActive and 200 or tweenSpeed
                 local glideStep = math.min(dist, operationalSpeed * deltaTime)
                 local calculatedPosition = currentPos + (travelVector.Unit * glideStep)
-                local currentLook = Vector3.new(lookTarget.X, calculatedPosition.Y, lookTarget.Z)
-                root.CFrame = CFrame.lookAt(calculatedPosition, currentLook)
+                local currentLook = Vector3.new(lookTarget.X, calculatedPosition.Y, currentLook and currentLook.Z or calculatedPosition.Z)
+                root.CFrame = CFrame.lookAt(calculatedPosition, Vector3.new(lookTarget.X, calculatedPosition.Y, lookTarget.Z))
             end
         end
         
@@ -975,7 +1051,48 @@ if dropCreatedRemote then
     end)
 end
 
--- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE
+-- 10. HYBRID AUTO OPEN CHEST MODULE (Event-Driven + Workspace Detector + WhiteflameChest Support)
+local openedChestsCache = {}
+
+local function handlePhysicalChest(chestObj)
+    if not autoOpenChests or openedChestsCache[chestObj] then return end
+    openedChestsCache[chestObj] = true
+
+    task.spawn(function()
+        task.wait(0.3)
+
+        -- Remote Invocation Strategy (Instance, Name, & Attributes)
+        if openChestRemote then
+            task.spawn(pcall, function() openChestRemote:InvokeServer(chestObj) end)
+            task.spawn(pcall, function() openChestRemote:InvokeServer(chestObj.Name) end)
+            
+            local chestID = chestObj:GetAttribute("ChestUUID") 
+                or chestObj:GetAttribute("UUID") 
+                or chestObj:GetAttribute("Id") 
+                or chestObj:GetAttribute("ChestId")
+            if chestID then
+                task.spawn(pcall, function() openChestRemote:InvokeServer(chestID) end)
+            end
+        end
+
+        -- ProximityPrompt Bypass Strategy (Hold E Prompts)
+        for _, prompt in ipairs(chestObj:GetDescendants()) do
+            if prompt:IsA("ProximityPrompt") then
+                pcall(function()
+                    if fireproximityprompt then
+                        fireproximityprompt(prompt)
+                    else
+                        prompt:InputHoldBegin()
+                        task.wait(prompt.HoldDuration + 0.05)
+                        prompt:InputHoldEnd()
+                    end
+                end)
+            end
+        end
+    end)
+end
+
+-- 10a. Network Event Listener (Boss / Dungeon Clear Chests)
 if spawnChestRemote then
     spawnChestRemote.OnClientEvent:Connect(function(...)
         if autoOpenChests and openChestRemote then
@@ -992,6 +1109,8 @@ if spawnChestRemote then
                         else
                             task.spawn(pcall, function() openChestRemote:InvokeServer(arg) end)
                         end
+                    elseif typeof(arg) == "Instance" then
+                        handlePhysicalChest(arg)
                     end
                 end
             end)
@@ -999,13 +1118,38 @@ if spawnChestRemote then
     end)
 end
 
+-- 10b. Workspace ChildAdded Listener (Instant trigger when physical chests spawn)
+workspace.ChildAdded:Connect(function(child)
+    if autoOpenChests then
+        local childName = child.Name:lower()
+        if childName:find("chest") or child.Name == "WhiteflameChest" then
+            handlePhysicalChest(child)
+        end
+    end
+end)
+
+-- 10c. Workspace Polling Scan (Catches existing chests on load)
+task.spawn(function()
+    while true do
+        task.wait(1.5)
+        if autoOpenChests then
+            for _, obj in ipairs(workspace:GetChildren()) do
+                local objName = obj.Name:lower()
+                if objName:find("chest") or obj.Name == "WhiteflameChest" then
+                    handlePhysicalChest(obj)
+                end
+            end
+        end
+    end
+end)
+
 -- 11. ESP MODULE
 task.spawn(function()
     while true do
         task.wait(0.5)
         if espEnabled then
             local mobsFolder = workspace:FindFirstChild("Mobs")
-            if mobsFolder then
+            if mobsFolder me then
                 for _, obj in ipairs(mobsFolder:GetChildren()) do
                     if isEnemy(obj) and not obj:FindFirstChild("CombatEngineESP") then
                         local highlight = Instance.new("Highlight")
@@ -1030,6 +1174,45 @@ task.spawn(function()
             task.spawn(pcall, function()
                 massExtractRemote:InvokeServer()
             end)
+        end
+    end
+end)
+
+-- 13. AUTO BUY MERCHANT VENDING MACHINE MODULE
+task.spawn(function()
+    while true do
+        task.wait(merchantBuyDelay)
+        if autoBuyMerchantEnabled and getMerchantItemsRemote and buyMerchantRemote and #selectedMerchantItems > 0 then
+            local getSuccess, stockResult, verificationCode = pcall(function()
+                return getMerchantItemsRemote:InvokeServer()
+            end)
+
+            if getSuccess and type(stockResult) == "table" then
+                for _, selectedName in ipairs(selectedMerchantItems) do
+                    local slotKey = merchantItemMap[selectedName]
+                    if slotKey and stockResult[slotKey] and stockResult[slotKey] > 0 then
+                        task.spawn(function()
+                            local buySuccess, buyRes = pcall(function()
+                                if verificationCode then
+                                    return buyMerchantRemote:InvokeServer("Normal", slotKey, verificationCode)
+                                else
+                                    return buyMerchantRemote:InvokeServer("Normal", slotKey)
+                                end
+                            end)
+                            
+                            if buySuccess then
+                                Rayfield:Notify({
+                                    Title = "Merchant Auto Buy",
+                                    Content = "Bought: " .. tostring(selectedName),
+                                    Duration = 3,
+                                    Image = 4483362458,
+                                })
+                            end
+                        end)
+                        task.wait(0.3)
+                    end
+                end
+            end
         end
     end
 end)
