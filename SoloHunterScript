@@ -187,6 +187,13 @@ CombatTab:CreateToggle({
 })
 
 CombatTab:CreateToggle({
+   Name = "Auto Cast Skills (Requires Auto Attack)",
+   CurrentValue = false,
+   Flag = "MCE_AutoSkills",
+   Callback = function(Value) autoSkillsEnabled = Value end,
+})
+
+CombatTab:CreateToggle({
    Name = "Filter Mobs (Ignore Team/Pets/Invincible)",
    CurrentValue = true,
    Flag = "MCE_FilterMobs",
@@ -232,13 +239,6 @@ CombatTab:CreateSlider({
    CurrentValue = 4,
    Flag = "MCE_HoverHeight",
    Callback = function(Value) HOVER_HEIGHT = Value end,
-})
-
-CombatTab:CreateToggle({
-   Name = "Auto Cast Skills (Master Toggle)",
-   CurrentValue = false,
-   Flag = "MCE_AutoSkills",
-   Callback = function(Value) autoSkillsEnabled = Value end,
 })
 
 CombatTab:CreateSection("Individual Skill Binds")
@@ -493,7 +493,7 @@ end
 
 task.spawn(function()
     while true do
-        if autoAttackEnabled or autoSkillsEnabled then
+        if autoAttackEnabled then
             local found = getClosestEnemy()
             if found then
                 local hum = found:FindFirstChildOfClass("Humanoid")
@@ -509,6 +509,61 @@ task.spawn(function()
             targetEnemy = nil
         end
         task.wait(0.1)
+    end
+end)
+
+-- // DYNAMIC UI MODE SWITCHER ENGINE // --
+local originalDeviceMode = nil
+
+local function setUIMode(mode)
+    local pGui = player:FindFirstChild("PlayerGui")
+    if not pGui then return end
+
+    if mode == "PC" then
+        isProgrammaticInput = true
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+        task.wait(0.01)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+        isProgrammaticInput = false
+    end
+
+    for _, gui in ipairs(pGui:GetChildren()) do
+        if gui:IsA("ScreenGui") then
+            local deviceSetting = gui:FindFirstChild("Device", true) 
+                or gui:FindFirstChild("UI_Mode", true)
+                or gui:FindFirstChild("ControlMode", true)
+            
+            if deviceSetting then
+                if deviceSetting:IsA("StringValue") or deviceSetting:IsA("TextLabel") then
+                    if mode == "PC" then
+                        if originalDeviceMode == nil then originalDeviceMode = deviceSetting.Value end
+                        deviceSetting.Value = "PC"
+                    elseif mode == "Restore" and originalDeviceMode then
+                        deviceSetting.Value = originalDeviceMode
+                    end
+                end
+            end
+        end
+    end
+end
+
+task.spawn(function()
+    local wasAttacking = false
+
+    while true do
+        task.wait(0.1)
+        local isActivelyAttacking = autoAttackEnabled 
+            and targetEnemy ~= nil 
+            and (targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart) ~= nil
+            and not safeSpotActive
+
+        if isActivelyAttacking and not wasAttacking then
+            wasAttacking = true
+            setUIMode("PC")
+        elseif not isActivelyAttacking and wasAttacking then
+            wasAttacking = false
+            setUIMode("Restore")
+        end
     end
 end)
 
@@ -570,7 +625,8 @@ RunService.Heartbeat:Connect(function(deltaTime)
             end
         end
         
-        root.AssemblyLinearVelocity = Vector3.new(0, 0.001, 0)
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
     else
         if isFlyingToTarget then
             isFlyingToTarget = false
@@ -582,7 +638,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
     end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE (NON-BLOCKING REMOTE CALL)
+-- 2. COMBINED AUTO ATTACK MODULE
 local lastRemoteCall = 0
 task.spawn(function()
     while true do
@@ -619,23 +675,32 @@ local skillBinds = {
 task.spawn(function()
     while true do
         task.wait(0.05)
-        if autoSkillsEnabled and targetEnemy and not safeSpotActive then
+        local canCastSkills = autoAttackEnabled 
+            and autoSkillsEnabled 
+            and targetEnemy ~= nil 
+            and not safeSpotActive
+
+        if canCastSkills then
             local now = os.clock()
-            for _, skillData in ipairs(skillBinds) do
-                if skillData.GetEnabled() and (now - skillData.LastCast >= SKILL_INTERVAL) then
-                    local character = player.Character
-                    local root = character and character:FindFirstChild("HumanoidRootPart")
-                    local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
-                    
-                    if root and enemyRoot and character:FindFirstChildOfClass("Tool") then
-                        local flatDist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(enemyRoot.Position.X, 0, enemyRoot.Position.Z)).Magnitude
-                        if flatDist <= (attackDistance + 20) then
+            local character = player.Character
+            local root = character and character:FindFirstChild("HumanoidRootPart")
+            local enemyRoot = targetEnemy and (targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart)
+
+            if root and enemyRoot and character:FindFirstChildOfClass("Tool") then
+                local flatDist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(enemyRoot.Position.X, 0, enemyRoot.Position.Z)).Magnitude
+                
+                if flatDist <= (attackDistance + 25) then
+                    for _, skillData in ipairs(skillBinds) do
+                        if skillData.GetEnabled() and (now - skillData.LastCast >= SKILL_INTERVAL) then
                             skillData.LastCast = now
+                            
                             isProgrammaticInput = true
                             VirtualInputManager:SendKeyEvent(true, skillData.Key, false, game)
-                            task.wait(0.02)
+                            task.wait(0.03)
                             VirtualInputManager:SendKeyEvent(false, skillData.Key, false, game)
                             isProgrammaticInput = false
+                            
+                            task.wait(0.1)
                         end
                     end
                 end
@@ -781,12 +846,10 @@ local function triggerAutoRetry(source)
     isRetryPending = true
     
     task.spawn(function()
-        -- Wait for 5s touch/screen inactivity guard
         while (os.clock() - lastUserInputTime) < 5 do
             task.wait(0.5)
         end
         
-        -- Apply user-configured retry delay
         task.wait(retryDelay)
         
         local success = false
@@ -795,7 +858,6 @@ local function triggerAutoRetry(source)
         while autoRetryEnabled and attempts < 3 and not success do
             attempts = attempts + 1
             
-            -- Method A: Invoke Server Remote Non-Blockingly
             if retryDungeonRemote then
                 local pcallSuccess, res = pcall(function()
                     return retryDungeonRemote:InvokeServer("retry")
@@ -805,7 +867,6 @@ local function triggerAutoRetry(source)
                 end
             end
             
-            -- Method B: Fallback to Physical UI Button Click if Remote Failed
             if not success then
                 success = findAndClickRetryButton()
             end
@@ -829,7 +890,6 @@ local function triggerAutoRetry(source)
     end)
 end
 
--- Observer 1: Remote Event Listener
 if fullDungeonRemote then
     fullDungeonRemote.OnClientEvent:Connect(function(action, ...)
         if action == "PortalSpawned" then
@@ -851,14 +911,12 @@ if fullDungeonRemote then
     end)
 end
 
--- Observer 2: Boss Defeat Signal via Chest Spawn
 if spawnChestRemote then
     spawnChestRemote.OnClientEvent:Connect(function(...)
         triggerAutoRetry("BossChestSpawned")
     end)
 end
 
--- Observer 3: UI Fallback Observer
 task.spawn(function()
     while true do
         task.wait(1)
@@ -878,7 +936,7 @@ task.spawn(function()
     end
 end)
 
--- 8.5. POST-CLEAR AUTO CLICK ENGINE (WITH 5s INACTIVITY INTERRUPT DETECTOR)
+-- 8.5. POST-CLEAR AUTO CLICK ENGINE
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -914,7 +972,7 @@ if dropCreatedRemote then
     end)
 end
 
--- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE (NON-BLOCKING)
+-- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE
 if spawnChestRemote then
     spawnChestRemote.OnClientEvent:Connect(function(...)
         if autoOpenChests and openChestRemote then
