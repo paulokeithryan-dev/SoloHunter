@@ -1,4 +1,14 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- // RAYFIELD UI SAFE LOADSTRING WITH FAILOVER // --
+local Rayfield
+local success, result = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end)
+
+if success and result then
+    Rayfield = result
+else
+    Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLTD/Rayfield/main/source.lua'))()
+end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -529,11 +539,11 @@ local function isEnemy(model)
         return false
     end
 
-    -- ALWAYS ENFORCED SAFETY FILTERS (Active even if "Filter Mobs" is OFF)
+    -- ALWAYS ENFORCED SAFETY FILTERS
     if model:GetAttribute("IsPlayerTeam") == true then return false end
     if model:GetAttribute("PlayerBelongsTo") ~= nil then return false end
 
-    -- OPTIONAL FILTERS (Controlled by "Filter Mobs" toggle)
+    -- OPTIONAL FILTERS
     if filterMobsEnabled then
         if model:GetAttribute("ExcludeFromDungeonCount") == true then return false end
         if model:GetAttribute("Invincible") == true then return false end
@@ -699,8 +709,8 @@ RunService.Heartbeat:Connect(function(deltaTime)
                 local operationalSpeed = safeSpotActive and 200 or tweenSpeed
                 local glideStep = math.min(dist, operationalSpeed * deltaTime)
                 local calculatedPosition = currentPos + (travelVector.Unit * glideStep)
-                local currentLook = Vector3.new(lookTarget.X, calculatedPosition.Y, currentLook and currentLook.Z or calculatedPosition.Z)
-                root.CFrame = CFrame.lookAt(calculatedPosition, Vector3.new(lookTarget.X, calculatedPosition.Y, lookTarget.Z))
+                local targetLook = Vector3.new(lookTarget.X, calculatedPosition.Y, lookTarget.Z)
+                root.CFrame = CFrame.lookAt(calculatedPosition, targetLook)
             end
         end
         
@@ -1051,7 +1061,7 @@ if dropCreatedRemote then
     end)
 end
 
--- 10. HYBRID AUTO OPEN CHEST MODULE (Event-Driven + Workspace Detector + WhiteflameChest Support)
+-- 10. HYBRID AUTO OPEN CHEST MODULE
 local openedChestsCache = {}
 
 local function handlePhysicalChest(chestObj)
@@ -1061,7 +1071,6 @@ local function handlePhysicalChest(chestObj)
     task.spawn(function()
         task.wait(0.3)
 
-        -- Remote Invocation Strategy (Instance, Name, & Attributes)
         if openChestRemote then
             task.spawn(pcall, function() openChestRemote:InvokeServer(chestObj) end)
             task.spawn(pcall, function() openChestRemote:InvokeServer(chestObj.Name) end)
@@ -1075,7 +1084,6 @@ local function handlePhysicalChest(chestObj)
             end
         end
 
-        -- ProximityPrompt Bypass Strategy (Hold E Prompts)
         for _, prompt in ipairs(chestObj:GetDescendants()) do
             if prompt:IsA("ProximityPrompt") then
                 pcall(function()
@@ -1092,7 +1100,7 @@ local function handlePhysicalChest(chestObj)
     end)
 end
 
--- 10a. Network Event Listener (Boss / Dungeon Clear Chests)
+-- 10a. Network Event Listener
 if spawnChestRemote then
     spawnChestRemote.OnClientEvent:Connect(function(...)
         if autoOpenChests and openChestRemote then
@@ -1118,7 +1126,7 @@ if spawnChestRemote then
     end)
 end
 
--- 10b. Workspace ChildAdded Listener (Instant trigger when physical chests spawn)
+-- 10b. Workspace ChildAdded Listener
 workspace.ChildAdded:Connect(function(child)
     if autoOpenChests then
         local childName = child.Name:lower()
@@ -1128,7 +1136,7 @@ workspace.ChildAdded:Connect(function(child)
     end
 end)
 
--- 10c. Workspace Polling Scan (Catches existing chests on load)
+-- 10c. Workspace Polling Scan
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -1149,7 +1157,7 @@ task.spawn(function()
         task.wait(0.5)
         if espEnabled then
             local mobsFolder = workspace:FindFirstChild("Mobs")
-            if mobsFolder me then
+            if mobsFolder then
                 for _, obj in ipairs(mobsFolder:GetChildren()) do
                     if isEnemy(obj) and not obj:FindFirstChild("CombatEngineESP") then
                         local highlight = Instance.new("Highlight")
