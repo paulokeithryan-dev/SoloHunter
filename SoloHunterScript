@@ -4,40 +4,24 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 
--- // ANTI-CHEAT NEUTRALIZER MODULE // --
-task.spawn(function()
-    local acNames = {"anticheat", "ac", "detector", "physicscheck", "cheat", "validation", "security", "exploit"}
-    
-    local function disableAC(v)
-        if v:IsA("LocalScript") and v ~= script then
-            local scriptName = v.Name:lower()
-            for _, name in ipairs(acNames) do
-                if scriptName:find(name) then
-                    v.Enabled = false
-                    pcall(function() v:Destroy() end)
-                    warn("MCE Engine: Bypassed active client security script: " .. v.Name)
-                    break
-                end
-            end
+-- // USER ACTIVITY TRACKER MODULE // --
+local lastUserInputTime = 0
+local isProgrammaticInput = false
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not isProgrammaticInput then
+        local inputType = input.UserInputType
+        if inputType == Enum.UserInputType.Touch 
+           or inputType == Enum.UserInputType.MouseButton1 
+           or inputType == Enum.UserInputType.MouseButton2 
+           or inputType == Enum.UserInputType.Keyboard then
+            lastUserInputTime = os.clock()
         end
     end
-
-    local function monitorContainer(container)
-        if not container then return end
-        for _, v in ipairs(container:GetDescendants()) do disableAC(v) end
-        container.DescendantAdded:Connect(disableAC)
-    end
-
-    task.spawn(function()
-        local playerScripts = player:WaitForChild("PlayerScripts", 10)
-        if playerScripts then monitorContainer(playerScripts) end
-    end)
-
-    if player.Character then monitorContainer(player.Character) end
-    player.CharacterAdded:Connect(monitorContainer)
 end)
 
 -- // EXPLOIT REMOTES // --
@@ -72,6 +56,7 @@ local retryDungeonRemote = remoteServices and remoteServices:WaitForChild("Dunge
 local autoAttackEnabled = false
 local autoAttackRange = 300     
 local autoEquipEnabled = true 
+local filterMobsEnabled = true 
 local M1_SPEED = 0.12           
 
 local exactPartAlignment = false
@@ -104,6 +89,7 @@ local autoDungeonEnabled = true
 local autoRetryEnabled = false   
 local autoDemonCastleEnabled = false
 local autoDungeonRange = 50
+local retryDelay = 2.5 
 
 -- // MOVEMENT CONFIGS // --
 local movementMethod = "Teleport" 
@@ -173,7 +159,7 @@ end
 
 -- // RAYFIELD UI SETUP // --
 local Window = Rayfield:CreateWindow({
-   Name = "Modular Combat Engine v27 (Stable Master)",
+   Name = "Modular Combat Engine v30 (Master)",
    LoadingTitle = "Applying Target Attributes & Mob Filters...",
    LoadingSubtitle = "Protected Movement Active",
    ConfigurationSaving = { 
@@ -198,6 +184,13 @@ CombatTab:CreateToggle({
        autoAttackEnabled = Value 
        updateNoclipState()
    end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Filter Mobs (Ignore Team/Pets/Invincible)",
+   CurrentValue = true,
+   Flag = "MCE_FilterMobs",
+   Callback = function(Value) filterMobsEnabled = Value end,
 })
 
 CombatTab:CreateToggle({
@@ -368,6 +361,15 @@ VisualsTab:CreateToggle({
    Callback = function(Value) autoRetryEnabled = Value end,
 })
 
+VisualsTab:CreateSlider({
+   Name = "Auto Retry Delay (Seconds)",
+   Range = {0, 10},
+   Increment = 0.5,
+   CurrentValue = 2.5,
+   Flag = "MCE_RetryDelay",
+   Callback = function(Value) retryDelay = Value end,
+})
+
 VisualsTab:CreateToggle({
    Name = "Auto Demon Castle (Next Floor)", 
    CurrentValue = false,
@@ -436,7 +438,7 @@ ConfigTab:CreateButton({
    end,
 })
 
--- // ENHANCED TARGET VALIDATION ENGINE // --
+-- // TARGET IDENTIFICATION ENGINE // --
 local targetEnemy = nil
 
 local function isEnemy(model)
@@ -444,22 +446,22 @@ local function isEnemy(model)
         return false 
     end
 
-    -- Attribute Filtering
-    if model:GetAttribute("IsPlayerTeam") == true then return false end
-    if model:GetAttribute("ExcludeFromDungeonCount") == true then return false end
-    if model:GetAttribute("Invincible") == true then return false end
-    if model:GetAttribute("Immune") == true then return false end
-    if model:GetAttribute("PlayerBelongsTo") ~= nil then return false end
-
-    -- Vital Component Checks
     local humanoid = model:FindFirstChildOfClass("Humanoid")
     local root = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
 
-    if humanoid and root and humanoid.Health > 0 then
-        return true
+    if not (humanoid and root and humanoid.Health > 0) then
+        return false
     end
 
-    return false
+    if filterMobsEnabled then
+        if model:GetAttribute("IsPlayerTeam") == true then return false end
+        if model:GetAttribute("ExcludeFromDungeonCount") == true then return false end
+        if model:GetAttribute("Invincible") == true then return false end
+        if model:GetAttribute("Immune") == true then return false end
+        if model:GetAttribute("PlayerBelongsTo") ~= nil then return false end
+    end
+
+    return true
 end
 
 local function getClosestEnemy()
@@ -510,9 +512,7 @@ task.spawn(function()
     end
 end)
 
--- // SYSTEM MODULES // --
-
--- 1. ADVANCED MOVEMENT MODULE (STABLE STATE GUARDED)
+-- // ADVANCED FLIGHT & MOVEMENT MODULE // --
 RunService.Heartbeat:Connect(function(deltaTime)
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -524,29 +524,22 @@ RunService.Heartbeat:Connect(function(deltaTime)
         and targetEnemy:FindFirstChildOfClass("Humanoid") 
         and targetEnemy:FindFirstChildOfClass("Humanoid").Health > 0
 
-    local shouldFly = (autoAttackEnabled and hasValidEnemy) or safeSpotActive
+    local shouldFly = (autoAttackEnabled and hasValidEnemy) or (safeSpotActive and hasValidEnemy)
 
     if shouldFly then
-        -- State Guard: Only trigger state transition ONCE to protect mobile joysticks
         if not isFlyingToTarget then
             isFlyingToTarget = true
             pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.Freefall) end)
         end
 
+        local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
         local targetPosition
         local lookTarget
 
         if safeSpotActive then
-            if hasValidEnemy then
-                local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
-                targetPosition = enemyRoot.Position + Vector3.new(0.01, SAFE_HOVER_HEIGHT, 0)
-                lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
-            else
-                targetPosition = root.Position + Vector3.new(0.01, SAFE_HOVER_HEIGHT, 0)
-                lookTarget = targetPosition + root.CFrame.LookVector
-            end
+            targetPosition = enemyRoot.Position + Vector3.new(0.01, SAFE_HOVER_HEIGHT, 0)
+            lookTarget = Vector3.new(enemyRoot.Position.X, targetPosition.Y, enemyRoot.Position.Z)
         else
-            local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
             if positioningMode == "Above" then
                 targetPosition = enemyRoot.Position + Vector3.new(0.01, HOVER_HEIGHT, 0)
             elseif positioningMode == "Circle" then
@@ -584,11 +577,12 @@ RunService.Heartbeat:Connect(function(deltaTime)
             pcall(function() 
                 humanoid:ChangeState(Enum.HumanoidStateType.Running)
             end)
+            root.AssemblyLinearVelocity = Vector3.new(0, -30, 0)
         end
     end
 end)
 
--- 2. COMBINED AUTO ATTACK MODULE
+-- 2. COMBINED AUTO ATTACK MODULE (NON-BLOCKING REMOTE CALL)
 local lastRemoteCall = 0
 task.spawn(function()
     while true do
@@ -603,15 +597,17 @@ task.spawn(function()
                     end)
                 end
                 
+                isProgrammaticInput = true
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
                 task.wait(0.01)
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+                isProgrammaticInput = false
             end
         end
     end
 end)
 
--- 3. AUTO SKILLS SYSTEM (2D HORIZONTAL DISTANCE CHECK)
+-- 3. AUTO SKILLS SYSTEM
 local skillBinds = {
     {Key = Enum.KeyCode.F, GetEnabled = function() return castF end, LastCast = 0},
     {Key = Enum.KeyCode.R, GetEnabled = function() return castR end, LastCast = 0},
@@ -632,13 +628,14 @@ task.spawn(function()
                     local enemyRoot = targetEnemy:FindFirstChild("HumanoidRootPart") or targetEnemy.PrimaryPart
                     
                     if root and enemyRoot and character:FindFirstChildOfClass("Tool") then
-                        -- 2D planar distance prevents hover height from blocking skill triggers
                         local flatDist = (Vector3.new(root.Position.X, 0, root.Position.Z) - Vector3.new(enemyRoot.Position.X, 0, enemyRoot.Position.Z)).Magnitude
                         if flatDist <= (attackDistance + 20) then
                             skillData.LastCast = now
+                            isProgrammaticInput = true
                             VirtualInputManager:SendKeyEvent(true, skillData.Key, false, game)
                             task.wait(0.02)
                             VirtualInputManager:SendKeyEvent(false, skillData.Key, false, game)
+                            isProgrammaticInput = false
                         end
                     end
                 end
@@ -655,7 +652,7 @@ task.spawn(function()
         local humanoid = character and character:FindFirstChildOfClass("Humanoid")
         if autoPotionEnabled and humanoid and humanoid.Health > 0 then
             if (humanoid.Health / humanoid.MaxHealth) <= 0.5 then
-                if healRemote then pcall(function() healRemote:InvokeServer() end) end
+                if healRemote then task.spawn(pcall, function() healRemote:InvokeServer() end) end
                 task.wait(1.5) 
             end
         end
@@ -690,7 +687,7 @@ task.spawn(function()
     end
 end)
 
--- 6. AUTO EQUIP MODULE (BACKPACK DIRECT + KEYPRESS FALLBACK)
+-- 6. AUTO EQUIP MODULE
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -704,9 +701,11 @@ task.spawn(function()
                     if tool then
                         humanoid:EquipTool(tool)
                     else
+                        isProgrammaticInput = true
                         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
                         task.wait(0.02)
                         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+                        isProgrammaticInput = false
                     end
                 end
             end
@@ -735,8 +734,45 @@ task.spawn(function()
     end
 end)
 
--- 8. UNIFIED AUTO RETRY & DEMON CASTLE MODULE (THREAD-LOCKED)
+-- 8. ENHANCED DUAL-ACTION AUTO RETRY & DEMON CASTLE MODULE
 local isRetryPending = false
+
+local function findAndClickRetryButton()
+    local pGui = player:FindFirstChild("PlayerGui")
+    if not pGui then return false end
+
+    local targetKeywords = {"retry", "replay", "again", "next", "restart", "playagain"}
+    
+    for _, gui in ipairs(pGui:GetChildren()) do
+        if gui:IsA("ScreenGui") and gui.Enabled then
+            for _, descendant in ipairs(gui:GetDescendants()) do
+                if (descendant:IsA("TextButton") or descendant:IsA("ImageButton")) and descendant.Visible then
+                    local btnName = descendant.Name:lower()
+                    local btnText = (descendant:IsA("TextButton") and descendant.Text:lower()) or ""
+                    
+                    for _, kw in ipairs(targetKeywords) do
+                        if btnName:find(kw) or btnText:find(kw) then
+                            pcall(function()
+                                if firesignal then
+                                    firesignal(descendant.MouseButton1Click)
+                                    firesignal(descendant.Activated)
+                                else
+                                    isProgrammaticInput = true
+                                    VirtualInputManager:SendMouseButtonEvent(descendant.AbsolutePosition.X + 10, descendant.AbsolutePosition.Y + 30, 0, true, game, 0)
+                                    task.wait(0.05)
+                                    VirtualInputManager:SendMouseButtonEvent(descendant.AbsolutePosition.X + 10, descendant.AbsolutePosition.Y + 30, 0, false, game, 0)
+                                    isProgrammaticInput = false
+                                end
+                            end)
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
 
 local function triggerAutoRetry(source)
     isDungeonCleared = true
@@ -745,22 +781,50 @@ local function triggerAutoRetry(source)
     isRetryPending = true
     
     task.spawn(function()
-        task.wait(2.5)
+        -- Wait for 5s touch/screen inactivity guard
+        while (os.clock() - lastUserInputTime) < 5 do
+            task.wait(0.5)
+        end
+        
+        -- Apply user-configured retry delay
+        task.wait(retryDelay)
+        
+        local success = false
         local attempts = 0
-        while autoRetryEnabled and attempts < 3 do
+        
+        while autoRetryEnabled and attempts < 3 and not success do
             attempts = attempts + 1
+            
+            -- Method A: Invoke Server Remote Non-Blockingly
             if retryDungeonRemote then
-                local success = pcall(function()
+                local pcallSuccess, res = pcall(function()
                     return retryDungeonRemote:InvokeServer("retry")
                 end)
-                if success then 
-                    isDungeonCleared = false
-                    break 
+                if pcallSuccess and res ~= false then 
+                    success = true 
                 end
             end
-            task.wait(3)
+            
+            -- Method B: Fallback to Physical UI Button Click if Remote Failed
+            if not success then
+                success = findAndClickRetryButton()
+            end
+            
+            if success then
+                isDungeonCleared = false
+                Rayfield:Notify({
+                    Title = "Auto Retry Executed",
+                    Content = "Successfully retried via " .. (attempts == 1 and "Remote" or "UI Fallback") .. "!",
+                    Duration = 3,
+                    Image = 4483362458,
+                })
+                break
+            end
+            
+            task.wait(2)
         end
-        task.wait(5)
+        
+        task.wait(3)
         isRetryPending = false
     end)
 end
@@ -814,14 +878,18 @@ task.spawn(function()
     end
 end)
 
--- 8.5. POST-CLEAR AUTO CLICK ENGINE
+-- 8.5. POST-CLEAR AUTO CLICK ENGINE (WITH 5s INACTIVITY INTERRUPT DETECTOR)
 task.spawn(function()
     while true do
         task.wait(1.5)
-        if isDungeonCleared then
+        local timeSinceInput = os.clock() - lastUserInputTime
+        
+        if isDungeonCleared and (timeSinceInput >= 5) then
+            isProgrammaticInput = true
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
             task.wait(0.05)
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+            isProgrammaticInput = false
         end
     end
 end)
@@ -846,22 +914,22 @@ if dropCreatedRemote then
     end)
 end
 
--- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE (FLEXIBLE ARGS RESOLUTION)
+-- 10. EVENT-DRIVEN AUTO OPEN CHEST MODULE (NON-BLOCKING)
 if spawnChestRemote then
     spawnChestRemote.OnClientEvent:Connect(function(...)
         if autoOpenChests and openChestRemote then
             local args = {...}
             task.spawn(function()
-                task.wait(0.3) -- Delay buffer for server-side initialization
+                task.wait(0.3)
                 for _, arg in ipairs(args) do
                     if type(arg) == "string" then
-                        pcall(function() openChestRemote:InvokeServer(arg) end)
+                        task.spawn(pcall, function() openChestRemote:InvokeServer(arg) end)
                     elseif type(arg) == "table" then
                         local chestID = arg.ChestUUID or arg.UUID or arg.Id or arg.ChestId
                         if chestID then
-                            pcall(function() openChestRemote:InvokeServer(chestID) end)
+                            task.spawn(pcall, function() openChestRemote:InvokeServer(chestID) end)
                         else
-                            pcall(function() openChestRemote:InvokeServer(arg) end)
+                            task.spawn(pcall, function() openChestRemote:InvokeServer(arg) end)
                         end
                     end
                 end
@@ -870,7 +938,7 @@ if spawnChestRemote then
     end)
 end
 
--- 11. ESP MODULE (OPTIMIZED FOR MOBS FOLDER)
+-- 11. ESP MODULE
 task.spawn(function()
     while true do
         task.wait(0.5)
