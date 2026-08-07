@@ -15,8 +15,18 @@ local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
 
 local player = Players.LocalPlayer
+
+-- // HELPER: Get Bottom-Left Screen Position // --
+local function getBottomLeftPos()
+    local camera = workspace.CurrentCamera
+    if camera then
+        return 10, math.max(0, camera.ViewportSize.Y - 10)
+    end
+    return 10, 500 -- Fallback position
+end
 
 -- // USER ACTIVITY TRACKER MODULE // --
 local lastUserInputTime = 0
@@ -90,7 +100,6 @@ pcall(function()
     end
 end)
 
--- Fallback mapping if module failed to load dynamically
 if #merchantItemNames == 0 then
     merchantItemNames = {
         "Demon Castle Ticket", "Powercell1", "Shadow Trace", "Shadow Essence",
@@ -134,6 +143,10 @@ local autoCollectDrops = false
 local autoOpenChests = false
 local autoMassExtract = false
 
+-- // TP ABOVE CHEST CONFIG // --
+local tpAboveChestEnabled = false
+local tpAboveChestDistance = 500
+
 -- // AUTO BUY MERCHANT CONFIG // --
 local autoBuyMerchantEnabled = false
 local selectedMerchantItems = {}
@@ -146,6 +159,10 @@ local autoDemonCastleEnabled = false
 local autoDungeonRange = 50
 local retryDelay = 2.5 
 
+-- // GRAPHICS & VFX CONFIGS // --
+local lowVfxEnabled = false
+local ultraLowEnabled = false
+
 -- // MOVEMENT CONFIGS // --
 local movementMethod = "Teleport" 
 local tweenSpeed = 150
@@ -155,6 +172,87 @@ local circleAngle = 0
 -- // STATE TRACKING // --
 local isDungeonCleared = false
 local isFlyingToTarget = false
+
+-- // GRAPHICS & PERFORMANCE OPTIMIZER ENGINE // --
+local function isVFXInstance(inst)
+    return inst:IsA("ParticleEmitter") or inst:IsA("Smoke") or inst:IsA("Fire") 
+        or inst:IsA("Sparkles") or inst:IsA("Trail") or inst:IsA("Beam") 
+        or inst:IsA("Explosion")
+end
+
+local function applyLowVFXToInstance(inst)
+    if not (lowVfxEnabled or ultraLowEnabled) then return end
+    if isVFXInstance(inst) then
+        pcall(function() inst.Enabled = false end)
+    elseif inst:IsA("PostEffect") or inst:IsA("BloomEffect") or inst:IsA("BlurEffect") 
+        or inst:IsA("ColorCorrectionEffect") or inst:IsA("DepthOfFieldEffect") or inst:IsA("SunRaysEffect") then
+        pcall(function() inst.Enabled = false end)
+    end
+end
+
+local function applyUltraLowToInstance(inst)
+    if not ultraLowEnabled then return end
+    if inst:IsA("BasePart") then
+        pcall(function()
+            inst.Material = Enum.Material.SmoothPlastic
+            inst.CastShadow = false
+        end)
+    elseif inst:IsA("Decal") or inst:IsA("Texture") then
+        pcall(function() inst.Transparency = 1 end)
+    elseif inst:IsA("SurfaceAppearance") then
+        pcall(function() inst:Destroy() end)
+    end
+end
+
+local function applyLowVFX()
+    if lowVfxEnabled or ultraLowEnabled then
+        for _, v in ipairs(workspace:GetDescendants()) do
+            applyLowVFXToInstance(v)
+        end
+        for _, v in ipairs(Lighting:GetDescendants()) do
+            applyLowVFXToInstance(v)
+        end
+    end
+end
+
+local function applyUltraLow()
+    if ultraLowEnabled then
+        pcall(function()
+            Lighting.GlobalShadows = false
+            Lighting.FogEnd = 9e9
+        end)
+        local terrain = workspace:FindFirstChildOfClass("Terrain")
+        if terrain then
+            pcall(function()
+                terrain.WaterWaveSize = 0
+                terrain.WaterWaveSpeed = 0
+                terrain.WaterReflectance = 0
+                terrain.WaterTransparency = 0
+            end)
+        end
+        for _, v in ipairs(workspace:GetDescendants()) do
+            applyLowVFXToInstance(v)
+            applyUltraLowToInstance(v)
+        end
+    end
+end
+
+workspace.DescendantAdded:Connect(function(child)
+    if lowVfxEnabled or ultraLowEnabled then
+        task.spawn(function()
+            applyLowVFXToInstance(child)
+            applyUltraLowToInstance(child)
+        end)
+    end
+end)
+
+Lighting.DescendantAdded:Connect(function(child)
+    if lowVfxEnabled or ultraLowEnabled then
+        task.spawn(function()
+            applyLowVFXToInstance(child)
+        end)
+    end
+end)
 
 -- // FIRESIGNAL WRAPPER // --
 local function safeFireSignal(event, ...)
@@ -212,26 +310,15 @@ local function updateNoclipState()
     end
 end
 
--- // SOLO LEVELING SYSTEM UI INITIALIZATION // --
-local SoloLevelingTheme = {
-    TextColor = Color3.fromRGB(220, 240, 255),
-    Background = Color3.fromRGB(10, 12, 18),
-    Topbar = Color3.fromRGB(15, 20, 32),
-    Accent = Color3.fromRGB(0, 180, 255),
-    ElementBackground = Color3.fromRGB(20, 26, 40),
-    ElementBackgroundHover = Color3.fromRGB(30, 40, 60),
-    ElementBorder = Color3.fromRGB(35, 50, 80),
-    DropdownHolder = Color3.fromRGB(15, 20, 32)
-}
-
+-- // RAYFIELD UI INITIALIZATION // --
 local Window = Rayfield:CreateWindow({
-   Name = "SYSTEM // SHADOW MONARCH ENGINE",
-   LoadingTitle = "[SYSTEM NOTIFICATION: PLAYER AUTHORIZED]",
-   LoadingSubtitle = "Initializing Combat Modules...",
-   Theme = SoloLevelingTheme,
+   Name = "Combat & Dungeon Hub",
+   LoadingTitle = "Interface Loading",
+   LoadingSubtitle = "Initializing Script Hub...",
+   Theme = "Default",
    ConfigurationSaving = { 
       Enabled = true, 
-      FolderName = "SoloLevelingSystem", 
+      FolderName = "ScriptHubConfig", 
       FileName = "SystemConfig" 
    },
 })
@@ -245,7 +332,7 @@ local VisualsTab = Window:CreateTab("Visuals & Dungeons", nil)
 local ConfigTab = Window:CreateTab("Configuration", nil)
 
 -- ==========================================
--- [HELP TAB - LOGIC & USAGE INSTRUCTIONS]
+-- [HELP TAB]
 -- ==========================================
 HelpTab:CreateSection("System Logic & Operations Manual")
 
@@ -256,7 +343,7 @@ HelpTab:CreateParagraph({
 
 HelpTab:CreateParagraph({
     Title = "2. Positioning Modes (Above vs Circle)",
-    Content = "• WHAT IT DOES: Determines where your character floats relative to the target mob.\n• ABOVE: Places you vertically above the mob at 'Classic Hover Height'. Best for avoiding ground attacks.\n• CIRCLE: Rotates your character in a orbital ring around the mob. Useful against bosses with frontal directional attacks."
+    Content = "• WHAT IT DOES: Determines where your character floats relative to the target mob.\n• ABOVE: Places you vertically above the mob at 'Classic Hover Height'. Best for avoiding ground attacks.\n• CIRCLE: Rotates your character in an orbital ring around the mob. Useful against bosses with frontal directional attacks."
 })
 
 HelpTab:CreateParagraph({
@@ -277,6 +364,11 @@ HelpTab:CreateParagraph({
 HelpTab:CreateParagraph({
     Title = "6. Silent Merchant Auto-Buy",
     Content = "• WHAT IT DOES: Automatically scans the Merchant's server inventory and purchases selected items directly via server remotes, without opening shop UIs or creating notifications.\n• HOW TO USE: Select items from the dropdown, toggle 'Auto Buy Merchant Items', and adjust the scan interval."
+})
+
+HelpTab:CreateParagraph({
+    Title = "7. Low VFX & Ultra Low Graphics",
+    Content = "• LOW VFX: Disables particle effects, beams, trails, and lighting effects to reduce visual clutter.\n• ULTRA LOW GRAPHICS: Turns textures into SmoothPlastic, removes shadows/decals, and strips fog to maximize FPS on low-end devices."
 })
 
 -- ==========================================
@@ -387,18 +479,38 @@ CombatTab:CreateToggle({
 -- ==========================================
 -- [UTILITIES & HP TAB]
 -- ==========================================
-UtilityTab:CreateToggle({
-   Name = "Auto Collect Drops",
-   CurrentValue = false,
-   Flag = "MCE_AutoCollectDrops",
-   Callback = function(Value) autoCollectDrops = Value end,
-})
+UtilityTab:CreateSection("Chest Utilities")
 
 UtilityTab:CreateToggle({
    Name = "Auto Open Chests",
    CurrentValue = false,
    Flag = "MCE_AutoOpenChests",
    Callback = function(Value) autoOpenChests = Value end,
+})
+
+UtilityTab:CreateToggle({
+   Name = "TP Above Chest",
+   CurrentValue = false,
+   Flag = "MCE_TpAboveChest",
+   Callback = function(Value) tpAboveChestEnabled = Value end,
+})
+
+UtilityTab:CreateSlider({
+   Name = "TP Above Chest Distance Limit",
+   Range = {50, 1000},
+   Increment = 25,
+   CurrentValue = 500,
+   Flag = "MCE_TpAboveChestDistance",
+   Callback = function(Value) tpAboveChestDistance = Value end,
+})
+
+UtilityTab:CreateSection("General Drops & Recovery")
+
+UtilityTab:CreateToggle({
+   Name = "Auto Collect Drops",
+   CurrentValue = false,
+   Flag = "MCE_AutoCollectDrops",
+   Callback = function(Value) autoCollectDrops = Value end,
 })
 
 UtilityTab:CreateToggle({
@@ -472,6 +584,30 @@ ShopTab:CreateSlider({
 -- ==========================================
 -- [VISUALS & DUNGEONS TAB]
 -- ==========================================
+VisualsTab:CreateSection("Graphics & Performance Optimization")
+
+VisualsTab:CreateToggle({
+   Name = "Low VFX (Disable Particles & Skill Effects)",
+   CurrentValue = false,
+   Flag = "MCE_LowVFX",
+   Callback = function(Value)
+       lowVfxEnabled = Value
+       applyLowVFX()
+   end,
+})
+
+VisualsTab:CreateToggle({
+   Name = "Ultra Low Graphics (Potato Mode / Smooth Textures)",
+   CurrentValue = false,
+   Flag = "MCE_UltraLow",
+   Callback = function(Value)
+       ultraLowEnabled = Value
+       applyUltraLow()
+   end,
+})
+
+VisualsTab:CreateSection("Visuals & Dungeons Settings")
+
 VisualsTab:CreateToggle({
    Name = "Enemy ESP",
    CurrentValue = false,
@@ -570,7 +706,7 @@ ConfigTab:CreateButton({
    Callback = function()
        if delfile then
            pcall(function()
-               delfile("SoloLevelingSystem/SystemConfig.json")
+               delfile("ScriptHubConfig/SystemConfig.json")
            end)
            Rayfield:Notify({
                Title = "System Reset",
@@ -783,7 +919,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
     end
 end)
 
--- AUTO ATTACK MODULE
+-- AUTO ATTACK MODULE (UPDATED: BOTTOM-LEFT CLICK)
 local lastRemoteCall = 0
 task.spawn(function()
     while true do
@@ -798,10 +934,11 @@ task.spawn(function()
                     end)
                 end
                 
+                local clickX, clickY = getBottomLeftPos()
                 isProgrammaticInput = true
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, true, game, 0)
                 task.wait(0.01)
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+                VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, false, game, 0)
                 isProgrammaticInput = false
             end
         end
@@ -1019,7 +1156,7 @@ local function triggerAutoRetry(source)
             if success then
                 isDungeonCleared = false
                 Rayfield:Notify({
-                    Title = "[SYSTEM] Auto Retry Executed",
+                    Title = "Auto Retry Executed",
                     Content = "Successfully retried via " .. (attempts == 1 and "Remote" or "UI Fallback") .. "!",
                     Duration = 3,
                     Image = 4483362458,
@@ -1081,17 +1218,18 @@ task.spawn(function()
     end
 end)
 
--- POST-CLEAR AUTO CLICK ENGINE
+-- POST-CLEAR AUTO CLICK ENGINE (UPDATED: BOTTOM-LEFT CLICK)
 task.spawn(function()
     while true do
         task.wait(1.5)
         local timeSinceInput = os.clock() - lastUserInputTime
         
         if isDungeonCleared and (timeSinceInput >= 5) then
+            local clickX, clickY = getBottomLeftPos()
             isProgrammaticInput = true
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, true, game, 0)
             task.wait(0.05)
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+            VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, false, game, 0)
             isProgrammaticInput = false
         end
     end
@@ -1117,72 +1255,94 @@ if dropCreatedRemote then
     end)
 end
 
--- HYBRID AUTO OPEN CHEST MODULE
+-- HYBRID AUTO OPEN CHEST & TP ABOVE CHEST MODULE
 local openedChestsCache = {}
 
 local function handlePhysicalChest(chestObj)
-    if not autoOpenChests or openedChestsCache[chestObj] then return end
+    if openedChestsCache[chestObj] then return end
     openedChestsCache[chestObj] = true
 
-    task.spawn(function()
-        task.wait(0.3)
+    if tpAboveChestEnabled then
+        local character = player.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        local chestPos = nil
 
-        if openChestRemote then
-            task.spawn(pcall, function() openChestRemote:InvokeServer(chestObj) end)
-            task.spawn(pcall, function() openChestRemote:InvokeServer(chestObj.Name) end)
-            
-            local chestID = chestObj:GetAttribute("ChestUUID") 
-                or chestObj:GetAttribute("UUID") 
-                or chestObj:GetAttribute("Id") 
-                or chestObj:GetAttribute("ChestId")
-            if chestID then
-                task.spawn(pcall, function() openChestRemote:InvokeServer(chestID) end)
+        if chestObj:IsA("BasePart") then
+            chestPos = chestObj.Position
+        elseif chestObj:IsA("Model") then
+            local primary = chestObj.PrimaryPart or chestObj:FindFirstChildWhichIsA("BasePart", true)
+            if primary then
+                chestPos = primary.Position
             end
         end
 
-        for _, prompt in ipairs(chestObj:GetDescendants()) do
-            if prompt:IsA("ProximityPrompt") then
-                pcall(function()
-                    if fireproximityprompt then
-                        fireproximityprompt(prompt)
-                    else
-                        prompt:InputHoldBegin()
-                        task.wait(prompt.HoldDuration + 0.05)
-                        prompt:InputHoldEnd()
-                    end
-                end)
+        if root and chestPos then
+            local distance = (root.Position - chestPos).Magnitude
+            if distance <= tpAboveChestDistance then
+                root.CFrame = CFrame.new(chestPos + Vector3.new(0, 5, 0))
             end
         end
-    end)
+    end
+
+    if autoOpenChests then
+        task.spawn(function()
+            task.wait(0.3)
+
+            if openChestRemote then
+                task.spawn(pcall, function() openChestRemote:InvokeServer(chestObj) end)
+                task.spawn(pcall, function() openChestRemote:InvokeServer(chestObj.Name) end)
+                
+                local chestID = chestObj:GetAttribute("ChestUUID") 
+                    or chestObj:GetAttribute("UUID") 
+                    or chestObj:GetAttribute("Id") 
+                    or chestObj:GetAttribute("ChestId")
+                if chestID then
+                    task.spawn(pcall, function() openChestRemote:InvokeServer(chestID) end)
+                end
+            end
+
+            for _, prompt in ipairs(chestObj:GetDescendants()) do
+                if prompt:IsA("ProximityPrompt") then
+                    pcall(function()
+                        if fireproximityprompt then
+                            fireproximityprompt(prompt)
+                        else
+                            prompt:InputHoldBegin()
+                            task.wait(prompt.HoldDuration + 0.05)
+                            prompt:InputHoldEnd()
+                        end
+                    end)
+                end
+            end
+        end)
+    end
 end
 
 if spawnChestRemote then
     spawnChestRemote.OnClientEvent:Connect(function(...)
-        if autoOpenChests and openChestRemote then
-            local args = {...}
-            task.spawn(function()
-                task.wait(0.3)
-                for _, arg in ipairs(args) do
-                    if type(arg) == "string" then
+        local args = {...}
+        task.spawn(function()
+            task.wait(0.2)
+            for _, arg in ipairs(args) do
+                if typeof(arg) == "Instance" then
+                    handlePhysicalChest(arg)
+                elseif type(arg) == "string" and autoOpenChests and openChestRemote then
+                    task.spawn(pcall, function() openChestRemote:InvokeServer(arg) end)
+                elseif type(arg) == "table" and autoOpenChests and openChestRemote then
+                    local chestID = arg.ChestUUID or arg.UUID or arg.Id or arg.ChestId
+                    if chestID then
+                        task.spawn(pcall, function() openChestRemote:InvokeServer(chestID) end)
+                    else
                         task.spawn(pcall, function() openChestRemote:InvokeServer(arg) end)
-                    elseif type(arg) == "table" then
-                        local chestID = arg.ChestUUID or arg.UUID or arg.Id or arg.ChestId
-                        if chestID then
-                            task.spawn(pcall, function() openChestRemote:InvokeServer(chestID) end)
-                        else
-                            task.spawn(pcall, function() openChestRemote:InvokeServer(arg) end)
-                        end
-                    elseif typeof(arg) == "Instance" then
-                        handlePhysicalChest(arg)
                     end
                 end
-            end)
-        end
+            end
+        end)
     end)
 end
 
 workspace.ChildAdded:Connect(function(child)
-    if autoOpenChests then
+    if autoOpenChests or tpAboveChestEnabled then
         local childName = child.Name:lower()
         if childName:find("chest") or child.Name == "WhiteflameChest" then
             handlePhysicalChest(child)
@@ -1193,7 +1353,7 @@ end)
 task.spawn(function()
     while true do
         task.wait(1.5)
-        if autoOpenChests then
+        if autoOpenChests or tpAboveChestEnabled then
             for _, obj in ipairs(workspace:GetChildren()) do
                 local objName = obj.Name:lower()
                 if objName:find("chest") or obj.Name == "WhiteflameChest" then
@@ -1204,7 +1364,7 @@ task.spawn(function()
     end
 end)
 
--- ESP MODULE
+-- ESP MODULE (RED HIGHLIGHT)
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -1215,7 +1375,7 @@ task.spawn(function()
                     if isEnemy(obj) and not obj:FindFirstChild("CombatEngineESP") then
                         local highlight = Instance.new("Highlight")
                         highlight.Name = "CombatEngineESP"
-                        highlight.FillColor = Color3.fromRGB(0, 180, 255)
+                        highlight.FillColor = Color3.fromRGB(255, 50, 50)
                         highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
                         highlight.FillTransparency = 0.5
                         highlight.Adornee = obj
